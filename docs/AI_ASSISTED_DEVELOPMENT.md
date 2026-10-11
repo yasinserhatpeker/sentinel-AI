@@ -1,29 +1,29 @@
-# AI-assisted development
+# AI destekli geliştirme
 
-SentinelAI uses a structured spec-driven AI-assisted development workflow.
+SentinelAI, spec tabanlı ve kontrollü bir AI destekli geliştirme akışı kullanır.
 
-## Adopted
+## Benimsenen yapı
 
-- `AGENTS.md` / `CLAUDE.md` route agents to task-specific rules.
-- `specs/` keeps requirements, design decisions and tasks together.
-- Non-trivial API, model, analysis, route, shared-service and deployment changes require a spec first.
-- Specs use explicit acceptance criteria, verification tags, open questions and decision logs.
-- Backend and frontend rules are read before implementation patterns are searched.
-- Secrets, production payloads and sensitive logs are excluded from source and specs.
+- `AGENTS.md` ve `CLAUDE.md` agent’ları görev bazlı kurallara yönlendirir.
+- `specs/` gereksinimleri, mimari kararları ve görevleri birlikte tutar.
+- Kapsamlı API, model, analiz, route, ortak service ve deployment değişikliklerinden önce spec açılır.
+- Spec’lerde kabul kriterleri, doğrulama etiketleri, açık sorular ve karar günlüğü bulunur.
+- Backend ve frontend kuralları, implementation pattern’leri incelenmeden önce okunur.
+- Secret, production payload ve hassas log’lar kaynak koduna veya spec’lere yazılmaz.
 
-## SentinelAI boundaries
+## SentinelAI sınırları
 
-- Scope is expressed as environment, service, deployment and time range.
-- Authentication and authorization are explicit future API decisions recorded in specs.
-- Detection and incident correlation must retain evidence references and reproducible configuration.
-- LLM output is bounded, redacted and advisory; it cannot directly execute an operational action.
-- Fault injection is restricted to demo/test environments and must be opt-in.
+- Scope; environment, service, deployment ve time range üzerinden ifade edilir.
+- Authentication ve authorization kararları spec’lerde açıkça kaydedilir.
+- Detection ve incident correlation evidence reference ve tekrarlanabilir configuration tutar.
+- LLM çıktısı bounded, redacted ve advisory’dir; doğrudan operasyonel aksiyon çalıştıramaz.
+- Fault injection yalnızca demo/test ortamında ve açık opt-in ile çalışır.
 
-## Working sequence
+## Çalışma sırası
 
-1. Read `AGENTS.md`, the relevant `.ai/` files and the active spec.
-2. Probe the existing implementation before editing.
-3. Record contract and architecture changes in the spec.
-4. Implement the smallest change that satisfies the criteria.
-5. Run the verification listed in `tasks.md` and record its result.
-6. Show the diff and proposed commit message before committing.
+1. `AGENTS.md`, ilgili `.ai/` dosyaları ve aktif spec okunur.
+2. Değişiklikten önce mevcut implementation incelenir.
+3. Contract ve mimari değişiklikler spec’e yazılır.
+4. Kabul kriterlerini karşılayan en küçük değişiklik uygulanır.
+5. `tasks.md` içinde belirtilen doğrulamalar çalıştırılır.
+6. Commit öncesi diff ve commit mesajı kullanıcıya gösterilir.

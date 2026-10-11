@@ -1,18 +1,15 @@
 # Spec Index
 
-**Append-only — never reformat this file.** A row is appended when a spec is created and
-edited in place when its status changes; existing rows never move, and there is no sort
-order. Two branches adding a spec collide on the last line: keep both rows, in either
-order, and change nothing else. Repair: [`README.md`](./README.md) → Operations → Index
-(`/spec index`).
+**Append-only — bu dosyayı yeniden biçimlendirme.** Spec oluşturulduğunda satır eklenir;
+durum değiştiğinde aynı satır güncellenir. Mevcut satırlar taşınmaz. Onarım için
+[`README.md`](./README.md) içindeki spec indeks kurallarını kullan.
 
-**Columns:** `slug` identity, and the dedupe key · `title` · `author` the human who asked
-for the work, never an agent · `area` — `README.md` → Frontmatter · `status` `draft` /
-`active` / `done` · `updated` as `DD/MM/YYYY HH:mm` · `location` `active` or `archive`.
+**Sütunlar:** `slug` kimliği · `title` · işi isteyen insanın `author` adı · `area` ·
+`status` (`draft` / `active` / `done`) · `updated` (`DD/MM/YYYY HH:mm`) · `location`.
 
 **Identity** is the slug: active specs live at `specs/<slug>/`, archived ones at
 `specs/archive/<YYYY-MM-DD>-<slug>/`.
 
 | slug | title | author | area | status | updated | location |
 | --- | --- | --- | --- | --- | --- | --- |
-| research-system-design | Research, requirements analysis and system design | Yasin Serhat Peker | platform | active | 11/10/2026 17:05 | specs/research-system-design/ |
+| research-system-design | Araştırma, gereksinim analizi ve sistem tasarımı | Yasin Serhat Peker | platform | active | 11/10/2026 17:05 | specs/research-system-design/ |

@@ -1,6 +1,6 @@
 ---
 slug: research-system-design
-title: Research, requirements analysis and system design
+title: Araştırma, gereksinim analizi ve sistem tasarımı
 author: Yasin Serhat Peker
 area: platform
 status: active
@@ -8,85 +8,84 @@ created: 2026-10-11 17:05
 updated: 2026-10-11 17:05
 ---
 
-# Gates
+# Karar kapıları
 
-- Model ownership: not_applicable: no persistent domain model is implemented in this milestone.
-- Authentication: not_applicable: no HTTP endpoint is implemented in this milestone.
-- Permission & row visibility: not_applicable: no query surface is implemented in this milestone.
-- Mutation, audit & logging: not_applicable: design-only milestone; event audit is specified below.
-- Client data protection boundary: confirmed: sensitive telemetry is redacted before persistence and LLM context creation.
+- Model sahipliği: uygulanamaz; bu milestone’da kalıcı domain modeli uygulanmıyor.
+- Authentication: uygulanamaz; bu milestone’da HTTP endpoint uygulanmıyor.
+- Permission ve görünürlük: uygulanamaz; query yüzeyi uygulanmıyor.
+- Mutation, audit ve logging: uygulanamaz; milestone tasarım odaklıdır, event audit aşağıda tanımlıdır.
+- Client data protection: onaylandı; hassas telemetry persistence ve LLM context oluşturma öncesi redakte edilir.
 
-# Approach
+# Yaklaşım
 
-Use OpenTelemetry-compatible events as the ingestion boundary. Django REST validates and
-normalizes inbound telemetry, PostgreSQL stores queryable aggregates and incident state,
-Redis/Celery handles asynchronous aggregation and detection, and Vue presents the
-operator-facing dashboard. The detector emits evidence-linked anomaly records; a later
-correlation service groups records by time, service, deployment and dependency context.
+OpenTelemetry uyumlu event’ler ingestion sınırı olacaktır. Django REST gelen telemetry’yi
+doğrular ve normalize eder; PostgreSQL sorgulanabilir aggregate ve incident state tutar;
+Redis/Celery asynchronous aggregation ve detection yürütür; Vue operatör dashboard’unu
+sunar. Detector kanıt bağlantılı anomaly kayıtları üretir; correlation service zaman,
+service, deployment ve dependency bağlamına göre kayıtları incident altında toplar.
 
-LLM analysis is deliberately downstream of deterministic detection and correlation. It
-receives redacted, bounded context and returns structured hypotheses, evidence references,
-confidence and suggested next checks. It does not mutate infrastructure.
+LLM analizi deterministic detection ve correlation sonrasında çalışır. Redakte edilmiş,
+sınırlandırılmış context alır; structured hypothesis, evidence reference, confidence ve
+önerilen sonraki incelemeleri üretir. Infrastructure üzerinde değişiklik yapamaz.
 
-# Probe findings
+# Araştırma bulguları
 
-- The report names HTTP latency/request rate/error rate, CPU/RAM, database connections and
-  queue data as the minimum demo set; the design adds deployment metadata for correlation.
-- OpenTelemetry is the common collection vocabulary, while PostgreSQL remains the system
-  of record for normalized telemetry and analysis results.
-- Redis/Celery is required for periodic aggregation and future analysis jobs, so ingestion
-  remains responsive and does not call an LLM inline.
-- The project uses a lightweight spec workflow and task-specific AI rules; domain behavior is defined only by SentinelAI requirements.
+- OpenTelemetry sinyalleri, semantic convention’ları ve correlation context’i sağlar; kalıcı query backend’i değildir.
+- Incident-management için yaşayan incident state, açık sahiplik, timeline kanıtı ve blameless follow-up gerekir.
+- Redis Streams/consumer group acknowledgement ve pending-message takibini destekler; PostgreSQL kalıcı kayıt sistemidir.
+- Celery beat periodic işleri zamanlar; production’da schedule için tek scheduler kullanılmalıdır.
+- PostgreSQL partitioning sonraki ölçek kararıdır; ilk demo bounded raw evidence ve bir dakikalık aggregate kullanır.
+- Raporun minimum demo seti HTTP latency/request rate/error rate, CPU/RAM, database bağlantıları ve queue verileridir.
 
-# Data flow
+# Veri akışı
 
 ```text
-Demo services / OTEL collector
+Demo service / OTEL collector
         -> telemetry ingestion API
         -> validation + normalization
-        -> PostgreSQL raw/aggregate records
+        -> PostgreSQL raw/aggregate kayıtları
         -> Celery aggregation + detector
-        -> anomaly records
+        -> anomaly kayıtları
         -> incident correlation
         -> redacted context builder -> LLM analysis
-        -> Vue dashboard and investigation timeline
+        -> Vue dashboard ve investigation timeline
 ```
 
-# Minimum telemetry model
+# Minimum telemetry modeli
 
-Every event carries `schema_version`, `event_id`, `timestamp`, `environment`, `service`,
-`instance`, `deployment_id` and optional `trace_id`. Values are numeric or bounded enums;
-payloads are size-limited and raw message fields are redacted before persistence.
+Her event `schema_version`, `event_id`, `timestamp`, `environment`, `service`, `instance`,
+`deployment_id` ve varsa `trace_id` taşır. Değerler numeric veya sınırlandırılmış enum’dur;
+payload boyutu sınırlıdır ve raw message alanları persistence öncesi redakte edilir.
 
-| Signal | Required measurements | Initial aggregation |
+| Sinyal | Gerekli ölçümler | İlk aggregation |
 |---|---|---|
-| HTTP | request count, latency p50/p95/p99, 4xx/5xx count, error rate | 1-minute service/route buckets |
-| Runtime | CPU utilization, memory utilization, process restarts | 1-minute service/instance buckets |
-| Database | connection usage, query latency, timeout/error count | 1-minute service/database buckets |
-| Queue | queue depth, oldest-message age, enqueue/dequeue rate, failure count | 1-minute queue buckets |
-| Deployment | deployment id, version, start/end time, changed services | event-based dimension |
+| HTTP | request count, latency p50/p95/p99, 4xx/5xx count, error rate | 1 dakika / service-route |
+| Runtime | CPU utilization, memory utilization, process restart | 1 dakika / service-instance |
+| Database | connection usage, query latency, timeout/error count | 1 dakika / service-database |
+| Queue | queue depth, oldest-message age, enqueue/dequeue rate, failure count | 1 dakika / queue |
+| Deployment | deployment ID, version, başlangıç/bitiş, değişen service’ler | event tabanlı dimension |
 
-# Fault-injection scenarios
+# Fault-injection senaryoları
 
-| Scenario | Controlled injection | Expected evidence | Success measure |
+| Senaryo | Kontrollü injection | Beklenen kanıt | Başarı ölçütü |
 |---|---|---|---|
-| High latency | add 300–800 ms delay to one demo route for 5 minutes | p95/p99 rise, trace duration rise, route-local impact | detection delay and recall |
-| Error burst | return 5xx for 10–20% of requests on one route | error-rate spike, matching request count, affected deployment | precision and false-positive rate |
-| Database slowdown | add bounded query delay or reduce demo pool capacity | DB latency/timeout rise followed by request latency | incident lead time and correlation quality |
-| Queue backlog | pause one consumer or cap processing rate | depth and oldest-age growth, downstream lag | backlog detection delay and recovery visibility |
+| High latency | Tek demo route’una 5 dakika 300–800 ms gecikme | p95/p99 ve trace duration artışı | detection delay ve recall |
+| Error burst | Tek route’ta %10–20 5xx | error-rate spike ve deployment bağı | precision ve false-positive rate |
+| Database slowdown | Query gecikmesi veya pool capacity düşüşü | DB latency/timeout sonrası request latency | incident lead time ve correlation quality |
+| Queue backlog | Consumer durdurma veya processing rate sınırı | depth ve oldest-age artışı | detection delay ve recovery visibility |
 
-Fault injection is enabled only by an explicit demo/test flag, records a scenario id and
-start/end time, and is never enabled by default.
+Fault injection yalnızca açık demo/test flag’i ile çalışır, scenario ID ve başlangıç/bitiş
+zamanını kaydeder ve varsayılan olarak kapalıdır.
 
-# Decision log
+# Karar günlüğü
 
-| Date | Decision | Reason |
+| Tarih | Karar | Gerekçe |
 |---|---|---|
-| 2026-10-11 | Keep detection deterministic before LLM analysis | measurable behavior, reproducible demos and safer failure modes |
+| 2026-10-11 | LLM analizinden önce deterministic detection kullanılacak | Ölçülebilir, tekrarlanabilir ve güvenli demo davranışı |
 
-# Rejected alternatives
+# Reddedilen alternatifler
 
-| Alternative | Rejection reason |
+| Alternatif | Reddedilme gerekçesi |
 |---|---|
-| Call the LLM directly from ingestion | adds latency, cost and nondeterminism to the critical path |
-| Store only pre-aggregated metrics | loses evidence needed for incident investigation and evaluation |
+| LLM’i ingestion içinde çağırmak | Kritik path’e latency, maliyet ve nondeterminism ekler |
+| Yalnızca pre-aggregated metric saklamak | Incident incelemesi için gerekli kanıt kaybolur |

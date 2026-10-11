@@ -1,23 +1,23 @@
 # specs/ — SentinelAI
 
-Specs are short, English-language records for non-trivial SentinelAI work. Each active
-spec contains `requirements.md`, `design.md` and `tasks.md`.
+Spec’ler, SentinelAI’deki kapsamlı işler için kısa Türkçe kayıtlardır. Her aktif spec
+`requirements.md`, `design.md` ve `tasks.md` dosyalarından oluşur.
 
-Open a spec before changing an API, event schema, data model, detector, correlation rule,
-LLM context contract, route, shared service/store, deployment configuration or CI behavior.
-Small isolated UI, copy, comment or documentation changes may skip a spec.
+API, event schema, data model, detector, correlation rule, LLM context contract, route,
+shared service/store, deployment configuration veya CI davranışı değişmeden önce spec açılır.
+Küçük ve izole UI, metin, yorum veya dokümantasyon değişiklikleri spec gerektirmeyebilir.
 
-## Required workflow
+## Gerekli çalışma akışı
 
-1. Read the applicable root and `.ai/` rules.
-2. Probe the existing code before writing requirements.
-3. Record scope, acceptance criteria, architecture decisions, risks and open questions.
-4. Keep `status: draft` until the owner approves implementation.
-5. Implement only after the spec is active.
-6. Run the listed verification and record results in `tasks.md`.
+1. İlgili root ve `.ai/` kurallarını oku.
+2. Gereksinimleri yazmadan önce mevcut kodu incele.
+3. Kapsamı, kabul kriterlerini, mimari kararları, riskleri ve açık soruları kaydet.
+4. Owner onayına kadar `status: draft` durumunu koru.
+5. Yalnızca spec aktif olduktan sonra uygulama yap.
+6. Listelenen doğrulamaları çalıştır ve sonuçları `tasks.md` içine yaz.
 
-All three files carry `slug`, `title`, `author`, `area`, `status`, `created` and `updated`.
-Requirements also carries `branches` and `verification`. Use `- [ ]` for pending,
-`- [x]` for verified and `- [~]` only for a manual criterion with a written reason.
-`INDEX.md` is append-only. Completed specs move to `specs/archive/YYYY-MM-DD-slug/`.
-Never put credentials, tokens, production payloads or secrets in a spec.
+Üç dosyada `slug`, `title`, `author`, `area`, `status`, `created` ve `updated` bulunur.
+Requirements ayrıca `branches` ve `verification` taşır. Bekleyen kriter için `- [ ]`,
+doğrulanan kriter için `- [x]`, yalnızca gerekçesi yazılmış manuel kriter için `- [~]`
+kullanılır. `INDEX.md` append-only’dir. Tamamlanan spec’ler `specs/archive/YYYY-MM-DD-slug/`
+altına taşınır. Spec içine credential, token, production payload veya secret yazılmaz.

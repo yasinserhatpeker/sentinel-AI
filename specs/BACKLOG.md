@@ -1,6 +1,6 @@
-# Backlog — captured work not yet promoted to a spec
+# Backlog — henüz spec’e dönüştürülmemiş işler
 
-**This is a buffer, not an archive. Empty is its healthy state.**
+**Bu alan arşiv değil, geçici bir tampon alandır. Boş olması sağlıklı durumdur.**
 
 Only one kind of entry belongs here: **work whose root cause is worth remembering, but for
 which no spec could be written at the time.** Typically production hotfixes — captured
@@ -12,7 +12,7 @@ What does **not** belong here:
 - Work that can go through the normal flow → open `/spec <slug>` directly
 - Planned work → this is not a todo list; it captures what already happened
 
-## Entry format
+## Kayıt biçimi
 
 ```md
 - YYYY-MM-DD · `<file or area>` · <root cause, one sentence>.
@@ -21,16 +21,16 @@ What does **not** belong here:
 
 Entries never contain credentials, tokens, key material or production payloads.
 
-## Lifecycle
+## Yaşam döngüsü
 
 Every entry leaves by becoming a spec or by being deleted — never a third way. The pass
 that does it: [`README.md`](./README.md) → Operations → Sweep (`/spec sweep`).
 
-## Related
+## İlgili kurallar
 
 - When a commit deliberately ships without a spec, mark it: `Spec: none (hotfix)`
 - Process: [`README.md`](./README.md) → Hotfixes
 
 ---
 
-## Open entries
+## Açık kayıtlar
