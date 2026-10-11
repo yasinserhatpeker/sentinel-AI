@@ -10,7 +10,7 @@ spec workflow under `specs/` and the backend/frontend guidance under `.ai/`.
 - `specs/` — English requirements, design decisions and executable task lists.
 
 The technology direction is Python/Django REST, Vue 3 + TypeScript, PostgreSQL,
-Redis + Celery, OpenTelemetry, scikit-learn, an LLM provider or local LLM, and Docker.
+Redis + Celery, OpenTelemetry, scikit-learn, a simple external LLM API, and Docker.
 
 ## Mandatory workflow
 
@@ -25,7 +25,8 @@ Redis + Celery, OpenTelemetry, scikit-learn, an LLM provider or local LLM, and D
 - Tenant, service and environment scope are explicit on every telemetry and incident query.
 - Ingestion endpoints validate payload shape, timestamps and event size; malformed data fails closed.
 - Raw telemetry is retained only as long as the documented retention policy permits.
-- LLM prompts contain redacted, bounded context. Model output is advisory and never an automatic authorization.
+- External LLM API prompts contain redacted, bounded context. Model output is advisory and never an automatic authorization.
+- Local LLM hosting, fine-tuning and self-managed model serving are out of scope.
 - Every detection and correlation decision is traceable to input event IDs, model/version and configuration.
 - Fault injection is isolated to demo/test environments and cannot target production by default.
 - Secrets belong only in environment or secret-management systems, never source, specs or fixtures.
@@ -40,4 +41,3 @@ with the `codex/` prefix when a branch is needed. Commit subjects are English an
 
 Project security invariants and `specs/README.md` take precedence over copied generic
 rules. `frontend/.ai/app.md` takes precedence over the shared frontend conventions.
-

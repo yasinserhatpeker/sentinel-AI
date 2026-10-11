@@ -13,7 +13,7 @@ minimum metric setini ve kontrollü fault-injection senaryolarını kapsar.
 ## Teknoloji yönü
 
 Python/Django REST Framework, Vue 3 + TypeScript, PostgreSQL, Redis + Celery,
-OpenTelemetry, scikit-learn, an LLM API or local LLM, and Docker.
+OpenTelemetry, scikit-learn, a simple external LLM API, and Docker.
 
 ## Çalışma kuralları
 

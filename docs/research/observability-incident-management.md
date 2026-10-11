@@ -87,8 +87,9 @@ aksiyonunu taşır. Deney yalnızca açık bir demo/test flag’i ile çalışı
 - Summary üretmeden önce evidence reference’larını saklama.
 - Time window, environment ve service’i birinci sınıf query dimension’ları yapma.
 - Redis/Celery ile asenkron çalışma; HTTP ingestion’ı hızlı ve öngörülebilir tutma.
-- Structured AI sonucu üretme: hypothesis, evidence ID, confidence, alternatifler ve sonraki adımlar.
+- Basit harici LLM API ile structured AI sonucu üretme: hypothesis, evidence ID, confidence, alternatifler ve sonraki adımlar.
 - AI çıktısının sistem durumunu değiştirmesine veya remediation çalıştırmasına izin vermeme.
+- Yerel LLM, fine-tuning ve model hosting geliştirmeme.
 
 ## Kaynaklar
 

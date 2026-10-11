@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SentinelAI | Detaylı Proje Rehberi</title>
+  <style>
+    :root{--ink:#172033;--muted:#5b6a80;--blue:#2457d6;--cyan:#087f92;--violet:#7257c9;--pale:#eef4ff;--line:#dbe4f0;--dark:#101b2e;--amber:#9a6b00;--green:#14774f;--bg:#f5f7fb}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}main{max-width:1120px;margin:auto;background:#fff;min-height:100vh;padding:64px clamp(24px,6vw,92px) 100px}.eyebrow{color:var(--blue);font-size:.76rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase}h1{font-size:clamp(2.5rem,6vw,5rem);line-height:1.02;letter-spacing:-.065em;margin:12px 0 18px}.intro{max-width:850px;color:var(--muted);font-size:1.14rem}.quote{margin:28px 0;padding:20px 22px;border-left:5px solid var(--blue);background:var(--pale);border-radius:0 12px 12px 0}.warning{border-left-color:#df9e00;background:#fff9e8}.nav{display:flex;flex-wrap:wrap;gap:8px;margin:28px 0 44px}.nav a{color:var(--blue);text-decoration:none;background:#f5f8ff;border:1px solid #ccdaf4;padding:6px 11px;border-radius:999px;font-size:.81rem;font-weight:800}h2{font-size:1.7rem;margin:52px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--line)}h3{font-size:1.08rem;margin:23px 0 8px;color:var(--blue)}p{margin:9px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.grid.two{grid-template-columns:repeat(2,1fr)}.card{border:1px solid var(--line);border-radius:13px;padding:18px}.card h3{margin-top:0}.card p{color:var(--muted)}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:20px 0}.flow span{padding:9px 12px;background:#f7faff;border:1px solid #cbd9f3;border-radius:8px;font-weight:800}.arrow{color:var(--violet);font-weight:900}table{width:100%;border-collapse:collapse;margin:16px 0 24px;font-size:.92rem}th,td{padding:11px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f8faff;color:var(--blue);font-size:.76rem;text-transform:uppercase;letter-spacing:.05em}code{background:#f1f4f8;color:#8b2e60;border-radius:4px;padding:2px 5px}.dark{background:var(--dark);color:#dfebff;border-radius:12px;padding:18px;overflow:auto;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}.stage{display:grid;grid-template-columns:150px 1fr;gap:18px;padding:16px 0;border-bottom:1px solid var(--line)}.stage strong{color:var(--violet)}.stage p{margin:0;color:var(--muted)}.number{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-weight:900;margin-right:8px}.small{color:var(--muted);font-size:.9rem}.footer{border-top:1px solid var(--line);margin-top:54px;padding-top:18px;color:var(--muted);font-size:.88rem}@media(max-width:740px){main{padding:40px 18px 68px}.grid,.grid.two{grid-template-columns:1fr}.stage{grid-template-columns:1fr;gap:2px}.flow{align-items:flex-start;flex-direction:column}.arrow{transform:rotate(90deg)}table{display:block;overflow-x:auto;white-space:nowrap}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">SentinelAI · Detaylı proje rehberi</div>
+  <h1>Sistemi izleyen, anlayan ve açıklayan platform.</h1>
+  <p class="intro">SentinelAI; uygulamalardan ve altyapı bileşenlerinden telemetry toplayan, sistemin normal davranışını modelleyen, olağandışı davranışları tespit eden, ilişkili anomalileri incident altında birleştiren ve operatöre kanıta dayalı inceleme önerileri sunan AI destekli bir observability platformudur.</p>
+  <div class="quote"><strong>SentinelAI’nin temel sorusu:</strong> “Sistemde ne oldu, ne zaman oldu, hangi servisleri etkiledi, hangi kanıtlar bunu destekliyor ve bundan sonra neyi incelemeliyiz?”</div>
+  <div class="nav"><a href="#problem">Problem</a><a href="#kavramlar">Kavramlar</a><a href="#mimari">Mimari</a><a href="#veri">Veri akışı</a><a href="#telemetry">Telemetry</a><a href="#ml">Makine öğrenmesi</a><a href="#incident">Incident</a><a href="#llm">AI analizi</a><a href="#fault">Fault injection</a><a href="#gelisim">Geliştirme planı</a></div>
+
+  <h2 id="problem">1. Çözmeye çalıştığımız problem</h2>
+  <p>Bir yazılım sistemi bozulduğunda genellikle tek bir belirti görmeyiz. Bir endpoint yavaşlar, database sorguları uzar, queue birikmeye başlar ve error rate yükselir. Farklı ekipler bu sinyalleri farklı araçlarda gördüğü için problemin başlangıç noktasını ve etkilenme zincirini bulmak zaman alır.</p>
+  <div class="grid two"><div class="card"><h3>Geleneksel yaklaşım</h3><ul><li>Metric grafikleri ayrı izlenir.</li><li>Log kayıtları ayrıca aranır.</li><li>Trace bilgisi başka bir ekrandadır.</li><li>Incident timeline çoğu zaman elle oluşturulur.</li><li>Root-cause kararı kişisel deneyime fazla bağlı kalır.</li></ul></div><div class="card"><h3>SentinelAI yaklaşımı</h3><ul><li>Sinyalleri ortak bağlamda toplar.</li><li>Normal davranıştan sapmayı tespit eder.</li><li>İlişkili anomalileri tek incident altında birleştirir.</li><li>Kanıtları timeline içinde saklar.</li><li>AI ile alternatif hipotez ve inceleme adımı önerir.</li></ul></div></div>
+
+  <h2 id="kavramlar">2. Temel kavramlar</h2>
+  <div class="grid"><div class="card"><h3>Service</h3><p>Sistemin belirli bir iş yapan bağımsız parçasıdır. Örneğin ödeme, kullanıcı veya sipariş servisi.</p></div><div class="card"><h3>Instance</h3><p>Bir service’in çalışan tekil kopyasıdır. Aynı service birden fazla instance ile çalışabilir.</p></div><div class="card"><h3>Environment</h3><p>Development, staging veya production gibi çalışma ortamıdır.</p></div><div class="card"><h3>Deployment</h3><p>Bir service’in belirli version’ının ortama çıkarılmasıdır. Incident correlation için kritik bağlamdır.</p></div><div class="card"><h3>Metric</h3><p>Zaman içinde ölçülen sayısal sistem davranışıdır: latency, CPU, error rate gibi.</p></div><div class="card"><h3>Trace</h3><p>Bir isteğin farklı service ve dependency’ler arasında izlediği uçtan uca yoldur.</p></div><div class="card"><h3>Anomaly</h3><p>Bir metric veya metric kombinasyonunun normal davranıştan anlamlı biçimde sapmasıdır.</p></div><div class="card"><h3>Incident</h3><p>Bir veya daha fazla anomaly’nin aynı operasyonel probleme ait birleşik durumudur.</p></div><div class="card"><h3>Evidence</h3><p>Bir kararın dayandığı metric penceresi, trace, log, deployment veya anomaly kaydıdır.</p></div></div>
+
+  <h2 id="mimari">3. Sistem mimarisi</h2>
+  <div class="flow"><span>Kaynak servisler</span><b class="arrow">→</b><span>OpenTelemetry</span><b class="arrow">→</b><span>Django REST ingestion</span><b class="arrow">→</b><span>PostgreSQL</span><b class="arrow">→</b><span>Celery + Redis</span><b class="arrow">→</b><span>Detection</span><b class="arrow">→</b><span>Correlation</span><b class="arrow">→</b><span>Vue 3</span><b class="arrow">→</b><span>AI açıklaması</span></div>
+  <table><thead><tr><th>Katman</th><th>Ne yapar?</th><th>Ne yapmaz?</th></tr></thead><tbody><tr><td>Kaynak servisler</td><td>HTTP, runtime, database, queue ve deployment sinyallerini üretir.</td><td>Incident kararı vermez.</td></tr><tr><td>OpenTelemetry</td><td>Trace, metric ve log’ları ortak vocabulary ile üretir ve ilişkilendirir.</td><td>Kalıcı storage veya root-cause engine değildir.</td></tr><tr><td>Django REST</td><td>Gelen veriyi doğrular, normalize eder ve API olarak sunar.</td><td>Request içinde ağır ML/LLM işi çalıştırmaz.</td></tr><tr><td>PostgreSQL</td><td>Event, aggregate, anomaly, incident ve evidence kayıtlarını tutar.</td><td>Kısa süreli queue broker’ı değildir.</td></tr><tr><td>Redis</td><td>Worker mesajlarını ve kısa ömürlü cache’i koordine eder.</td><td>Kalıcı kanıt kaynağı değildir.</td></tr><tr><td>Celery</td><td>Periyodik aggregation, scoring, correlation ve analysis işleri çalıştırır.</td><td>İş sonuçlarını tek başına kalıcı olarak saklamaz.</td></tr><tr><td>Vue 3</td><td>Operatöre filtre, grafik, anomaly ve incident timeline sunar.</td><td>Backend güvenliğinin yerine geçmez.</td></tr></tbody></table>
+
+  <h2 id="veri">4. Uçtan uca örnek: bir incident nasıl oluşur?</h2>
+  <p>Örneğin <code>orders-service</code> için yeni bir deployment yapıldığını düşünelim:</p>
+  <div class="stage"><strong><span class="number">1</span>Normal durum</strong><p>Service’in p95 latency’si 120 ms, error rate’i %1 ve queue depth’i 40 seviyesindedir. Bu dönem baseline için kullanılabilir.</p></div><div class="stage"><strong><span class="number">2</span>Deployment</strong><p><code>deployment_id</code> ve version event’i kaydedilir. Bundan sonraki telemetry bu deployment ile ilişkilendirilebilir.</p></div><div class="stage"><strong><span class="number">3</span>İlk sapma</strong><p>Database query latency yükselir. Statistical baseline bir sapma üretir; model de bu pencereyi olağandışı bulabilir.</p></div><div class="stage"><strong><span class="number">4</span>Yayılma</strong><p>HTTP p95 latency ve 5xx error rate yükselir. Aynı trace ve service bağlamı anomaly kayıtlarına eklenir.</p></div><div class="stage"><strong><span class="number">5</span>Correlation</strong><p>Benzer zaman aralığındaki database, HTTP ve queue anomalileri tek incident altında toplanır.</p></div><div class="stage"><strong><span class="number">6</span>İnceleme</strong><p>Dashboard timeline’ı deployment’ı başlangıç noktası olarak gösterir; AI katmanı evidence ID’leriyle hipotez üretir.</p></div>
+  <div class="dark">14:03:00  deployment deploy-42 başladı
+14:04:12  database query p95: 80 ms → 260 ms
+14:04:40  orders-service HTTP p95: 120 ms → 640 ms
+14:04:48  error rate: %1 → %14
+14:05:10  queue oldest age: 8 sn → 96 sn
+
+Incident: orders-service degradation
+Muhtemel başlangıç: deploy-42
+Kanıt: database latency, HTTP latency, error burst, queue backlog</div>
+
+  <h2 id="telemetry">5. Telemetry modeli</h2>
+  <p>Telemetry, sistemin gözlem verisidir. SentinelAI’de aynı olay farklı sinyallerde görünse bile ortak alanlarla birbirine bağlanmalıdır.</p>
+  <table><thead><tr><th>Sinyal</th><th>Ne anlatır?</th><th>Örnek</th></tr></thead><tbody><tr><td>Metrics</td><td>Sayısal ve zamansal davranış</td><td>CPU %82, p95 latency 640 ms</td></tr><tr><td>Logs</td><td>Olay ve hata detayları</td><td>Database timeout, worker exception</td></tr><tr><td>Traces</td><td>İsteğin servisler arası yolculuğu</td><td>API → orders → database</td></tr><tr><td>Events</td><td>Durum veya lifecycle değişikliği</td><td>Deployment başladı, instance restart oldu</td></tr></tbody></table>
+  <p>Ortak event alanları: <code>schema_version</code>, <code>event_id</code>, <code>timestamp</code>, <code>environment</code>, <code>service</code>, <code>instance</code>, <code>deployment_id</code> ve varsa <code>trace_id</code>.</p>
+  <h3>Minimum metric seti</h3>
+  <table><thead><tr><th>Alan</th><th>Toplanacak veriler</th><th>Kullanım</th></tr></thead><tbody><tr><td>HTTP</td><td>Request count, p50/p95/p99 latency, 4xx/5xx, error rate</td><td>Availability ve kullanıcıya yansıyan performans</td></tr><tr><td>Runtime</td><td>CPU, memory, process restart</td><td>Kaynak baskısı ve instance kararlılığı</td></tr><tr><td>Database</td><td>Connection usage, query latency, timeout/error</td><td>Dependency kaynaklı yavaşlama</td></tr><tr><td>Queue</td><td>Depth, oldest age, enqueue/dequeue, failures</td><td>İşleme gecikmesi ve downstream baskısı</td></tr><tr><td>Deployment</td><td>ID, version, zaman aralığı, değişen service’ler</td><td>Değişiklik ile anomaly ilişkisi</td></tr></tbody></table>
+
+  <h2 id="ml">6. Makine öğrenmesi</h2>
+  <p>SentinelAI’de ML’nin ilk amacı sınıflandırma değil, anomaly detection’dır. Model “bu kesin database arızasıdır” demez; “bu gözlem, bu service’in normal davranışından uzak” der.</p>
+  <div class="grid"><div class="card"><h3>ML’nin görevi</h3><p>Birden fazla metriğin birlikte oluşturduğu sıra dışı davranışı bulmak ve anomaly score üretmek.</p></div><div class="card"><h3>ML’nin görevi değil</h3><p>Tek başına incident kapatmak, kesin root cause söylemek veya remediation çalıştırmak.</p></div><div class="card"><h3>Güvenli kullanım</h3><p>Model çıktısını baseline, persistence ve correlation katmanlarıyla birlikte kullanmak.</p></div></div>
+  <h3>6.1. Model pipeline’ı</h3>
+  <div class="stage"><strong>Veri penceresi</strong><p>Aynı environment ve service için stabil kabul edilen geçmiş dönem seçilir.</p></div><div class="stage"><strong>Feature üretimi</strong><p>Ham metric’lerden seviye, değişim, trend, dağılım ve ilişki değerleri çıkarılır.</p></div><div class="stage"><strong>Preprocessing</strong><p>Eksik değerler işaretlenir; ölçekleme gerekiyorsa yalnızca training verisiyle fit edilen pipeline kullanılır.</p></div><div class="stage"><strong>Model eğitimi</strong><p>Isolation Forest deterministik <code>random_state</code> ile eğitilir; model version ve feature schema kaydedilir.</p></div><div class="stage"><strong>Scoring</strong><p>Yeni bir dakikalık pencere için anomaly score üretilir ve kullanılan feature snapshot saklanır.</p></div><div class="stage"><strong>Karar</strong><p>Score tek başına alarm değildir; persistence ve ilişkili sinyal kurallarıyla birlikte değerlendirilir.</p></div>
+  <h3>6.2. Feature engineering</h3>
+  <table><thead><tr><th>Feature grubu</th><th>Örnek</th><th>Ne yakalar?</th></tr></thead><tbody><tr><td>Seviye</td><td>Current p95 latency, error rate, CPU</td><td>Problemin mevcut büyüklüğü</td></tr><tr><td>Değişim</td><td>5 dakikalık fark, yüzde değişim, slope</td><td>Ani sıçrama veya yavaş bozulma</td></tr><tr><td>Dağılım</td><td>p50–p99 farkı, rolling std, MAD</td><td>Tail latency ve oynaklık</td></tr><tr><td>İlişki</td><td>Error rate × latency, queue depth / dequeue rate</td><td>Birlikte oluşan etkiler</td></tr><tr><td>Bağlam</td><td>Service, environment, deployment age</td><td>Doğru karşılaştırma grubu</td></tr></tbody></table>
+  <div class="dark">feature_vector(t) = [
+  latency_p95,
+  latency_change_5m,
+  error_rate,
+  error_rate_slope,
+  cpu_utilization,
+  memory_growth,
+  queue_depth,
+  queue_growth,
+  deployment_age
+]</div>
+  <h3>6.3. Isolation Forest ne yapar?</h3>
+  <p>Isolation Forest feature uzayında rastgele bölmeler yapan çok sayıda ağaç kurar. Normal gözlemler benzer bölgelerde kalır ve ayrıştırılmaları daha uzun sürer. Sıra dışı gözlemler daha kısa yollarda izole edilir.</p>
+  <div class="quote warning"><strong>Yorum sınırı:</strong> Düşük model score’u yalnızca davranışın sıra dışı olduğunu söyler. Root-cause için trace, log, deployment, dependency ve metric kanıtları birlikte incelenmelidir.</div>
+  <h3>6.4. Başarı ölçümü</h3>
+  <table><thead><tr><th>Metrik</th><th>Soru</th><th>Projedeki anlamı</th></tr></thead><tbody><tr><td>Precision</td><td>Alarm dediklerimizin kaçı gerçek fault?</td><td>Alarm gürültüsünü ölçer.</td></tr><tr><td>Recall</td><td>Gerçek fault’ların kaçını yakaladık?</td><td>Kaçırılan problemleri ölçer.</td></tr><tr><td>F1</td><td>Precision ve recall dengesi ne?</td><td>Modelleri dengeli karşılaştırır.</td></tr><tr><td>Detection delay</td><td>Fault’u kaç saniyede yakaladık?</td><td>Operasyonel tepki hızını ölçer.</td></tr><tr><td>False-positive rate</td><td>Normal durumlarda kaç gereksiz alarm var?</td><td>Dashboard güvenilirliğini ölçer.</td></tr></tbody></table>
+
+  <h2 id="incident">7. Incident correlation</h2>
+  <p>Anomaly tek başına yalnızca bir sinyaldir. Correlation katmanı, anomaly’lerin aynı probleme ait olup olmadığını belirler.</p>
+  <ul><li><strong>Zaman yakınlığı:</strong> Anomaliler aynı zaman penceresinde mi?</li><li><strong>Service ilişkisi:</strong> Aynı service veya dependency zincirinde mi?</li><li><strong>Deployment ilişkisi:</strong> Aynı değişiklikten sonra mı başladı?</li><li><strong>Trace ilişkisi:</strong> Aynı request akışında mı görünüyor?</li><li><strong>Etki zinciri:</strong> Bir anomaly diğerini açıklıyor mu?</li></ul>
+  <p>Incident state en azından <code>detected</code>, <code>investigating</code>, <code>mitigating</code>, <code>resolved</code> ve <code>closed</code> durumlarını takip edebilir. Her state değişimi zaman, actor, gerekçe ve evidence ile kaydedilir.</p>
+
+  <h2 id="llm">8. AI destekli root-cause analizi</h2>
+  <p>LLM, sistemin ilk alarm mekanizması değildir. Detection ve correlation tamamlandıktan sonra oluşan sınırlı ve redakte edilmiş context’i yorumlar.</p>
+  <div class="grid two"><div class="card"><h3>LLM’e verilenler</h3><ul><li>Incident timeline</li><li>Anomaly score’ları</li><li>Metric özetleri</li><li>Trace ve deployment bağlamı</li><li>Evidence ID’leri</li></ul></div><div class="card"><h3>LLM’den beklenenler</h3><ul><li>Olası root-cause hipotezleri</li><li>Hipotezi destekleyen kanıtlar</li><li>Alternatif açıklamalar</li><li>Confidence seviyesi</li><li>Sonraki inceleme adımları</li></ul></div></div>
+  <div class="quote warning"><strong>LLM sınırı:</strong> Yalnızca basit bir harici LLM API kullanılacaktır. Yerel LLM, fine-tuning ve model hosting kapsam dışıdır. LLM sistem durumunu değiştiremez, production remediation çalıştıramaz ve kanıt olmadan kesin hüküm veremez.</div>
+
+  <h2 id="fault">9. Fault injection</h2>
+  <p>Fault injection, detection ve correlation başarısını ölçmek için sisteme kontrollü hata vermektir. Her deney demo/test ortamında çalışır ve geri alınabilir olmalıdır.</p>
+  <table><thead><tr><th>Senaryo</th><th>Kontrollü etki</th><th>Beklenen sinyal</th><th>Ölçüm</th></tr></thead><tbody><tr><td>High latency</td><td>Route’a 300–800 ms gecikme</td><td>p95/p99 ve trace duration artar</td><td>Detection delay, recall</td></tr><tr><td>Error burst</td><td>Kontrollü 5xx üretimi</td><td>Error rate yükselir</td><td>Precision, false-positive</td></tr><tr><td>Database slowdown</td><td>Query gecikmesi veya pool baskısı</td><td>DB timeout ve HTTP latency artar</td><td>Lead time, correlation quality</td></tr><tr><td>Queue backlog</td><td>Consumer durması/yavaşlaması</td><td>Depth ve oldest age büyür</td><td>Detection delay, recovery visibility</td></tr></tbody></table>
+
+  <h2 id="gelisim">10. Projeyi nasıl geliştireceğiz?</h2>
+  <div class="stage"><strong>15 Ekim<br>Araştırma</strong><p>Kapsam, telemetry modeli, mimari sınırlar, minimum metric seti ve fault senaryoları. Bu dokümanın konusu.</p></div><div class="stage"><strong>29 Ekim<br>Temel platform</strong><p>Demo service, ingestion API, PostgreSQL modelleri, Celery aggregation ve ilk Vue dashboard.</p></div><div class="stage"><strong>12 Kasım<br>Detection</strong><p>Threshold/statistical baseline, Isolation Forest, fault deneyleri ve ölçüm sonuçları.</p></div><div class="stage"><strong>3 Aralık<br>Correlation + AI</strong><p>Incident correlation, timeline, structured context ve LLM destekli root-cause hipotezleri.</p></div><div class="stage"><strong>24 Aralık<br>Final</strong><p>Uçtan uca entegrasyon, test, başarı analizi, limitler ve final sunumu.</p></div>
+
+  <h2>11. Projenin başarı tanımı</h2>
+  <p>SentinelAI’nin başarısı yalnızca grafik göstermek değildir. Sistem kontrollü bir problemi hızlı ve doğru tespit etmeli, ilişkili sinyalleri aynı incident altında birleştirmeli, kararlarını kanıtlarla açıklamalı ve operatöre uygulanabilir bir inceleme yolu sunmalıdır.</p>
+  <div class="flow"><span>Doğru telemetry</span><b class="arrow">→</b><span>Ölçülebilir detection</span><b class="arrow">→</b><span>Açıklanabilir incident</span><b class="arrow">→</b><span>Kanıta dayalı AI önerisi</span></div>
+  <div class="footer">SentinelAI · Detaylı proje rehberi · 11 Ekim 2026</div>
+</main>
+</body>
+</html>

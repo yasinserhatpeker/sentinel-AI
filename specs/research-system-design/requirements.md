@@ -29,5 +29,5 @@ analizi uyumsuz varsayımlarla gelişir.
 
 # Açık sorular
 
-15 Ekim tasarım milestone’u için açık soru yoktur. LLM sağlayıcısı ve production
-retention değerleri sonraki milestone’da kararlaştırılacaktır.
+15 Ekim tasarım milestone’u için açık soru yoktur. LLM API sağlayıcısının kesin seçimi
+sonraki milestone’da yapılacaktır; yerel LLM, fine-tuning ve model hosting kapsam dışıdır.

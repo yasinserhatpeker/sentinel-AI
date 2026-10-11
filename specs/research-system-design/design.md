@@ -24,9 +24,10 @@ Redis/Celery asynchronous aggregation ve detection yürütür; Vue operatör das
 sunar. Detector kanıt bağlantılı anomaly kayıtları üretir; correlation service zaman,
 service, deployment ve dependency bağlamına göre kayıtları incident altında toplar.
 
-LLM analizi deterministic detection ve correlation sonrasında çalışır. Redakte edilmiş,
-sınırlandırılmış context alır; structured hypothesis, evidence reference, confidence ve
-önerilen sonraki incelemeleri üretir. Infrastructure üzerinde değişiklik yapamaz.
+Basit harici LLM API analizi deterministic detection ve correlation sonrasında çalışır.
+Redakte edilmiş, sınırlandırılmış context alır; structured hypothesis, evidence reference,
+confidence ve önerilen sonraki incelemeleri üretir. Infrastructure üzerinde değişiklik
+yapamaz. Yerel LLM, fine-tuning ve model hosting bu projenin kapsamı dışındadır.
 
 # Araştırma bulguları
 
@@ -82,6 +83,16 @@ zamanını kaydeder ve varsayılan olarak kapalıdır.
 | Tarih | Karar | Gerekçe |
 |---|---|---|
 | 2026-10-11 | LLM analizinden önce deterministic detection kullanılacak | Ölçülebilir, tekrarlanabilir ve güvenli demo davranışı |
+| 2026-10-11 | Yalnızca basit harici LLM API entegrasyonu kullanılacak | Geliştirme ve operasyonel maliyet düşük tutulur; yerel model işletme yükü alınmaz |
+
+# Harici LLM API sınırı
+
+LLM entegrasyonu ayrı bir `AnalysisProvider` arayüzü arkasında tutulur. Provider; redakte
+edilmiş incident context’i gönderir ve yalnızca doğrulanmış structured output kabul eder:
+`hypotheses`, `evidence_ids`, `confidence`, `alternatives`, `next_steps`. Timeout, retry,
+rate limit ve sağlayıcı hatası için fallback olarak template tabanlı açıklama üretilir.
+API anahtarı environment/secret store’da tutulur; telemetry ham payload’ı ve hassas alanlar
+LLM’e gönderilmez. Yerel LLM, fine-tuning ve model hosting yapılmaz.
 
 # Reddedilen alternatifler
 
