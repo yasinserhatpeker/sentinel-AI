@@ -38,6 +38,29 @@ yapamaz. Yerel LLM, fine-tuning ve model hosting bu projenin kapsamı dışında
 - PostgreSQL partitioning sonraki ölçek kararıdır; ilk demo bounded raw evidence ve bir dakikalık aggregate kullanır.
 - Raporun minimum demo seti HTTP latency/request rate/error rate, CPU/RAM, database bağlantıları ve queue verileridir.
 
+# Demo servisleri ve veri üretimi
+
+İlk demo, gereksiz mikroservis çoğaltmadan Django REST API, PostgreSQL, Redis,
+Celery Worker ve Vue 3 bileşenlerinden oluşur. Django API hızlı istek kabulü ve
+telemetry normalization yapar; uzun işler Celery'ye gönderilir; PostgreSQL kalıcı
+veri kaynağı, Redis cache/broker, Vue ise demo ve operasyon ekranıdır.
+
+Normal akışta bir API isteği PostgreSQL okuma/yazma, Redis cache ve Celery görevi
+üretebilir. Böylece tek bir kullanıcı işlemi içinde HTTP, database, queue ve trace
+bağlamı birlikte gözlemlenir. Fault injection yalnızca geliştirme/test ortamında
+çalışan ayrı bir modüldür ve `scenario_id`, hedef, parametre, başlangıç/bitiş zamanı
+ile rollback bilgisini kaydeder.
+
+Ana veri seti dışarıdan hazır alınmayacaktır. Normal telemetry ve kontrollü fault
+deneyleri SentinelAI demo ortamında üretilerek bir dakikalık feature pencerelerine
+dönüştürülecektir. `normal`, `high_latency`, `error_burst`, `db_slowdown` ve
+`queue_backlog` etiketleri fault kayıtlarından türetilecek; bu etiketler öncelikle
+ground truth ve değerlendirme için kullanılacaktır.
+
+Detaylı kurulum, endpoint ve veri sözleşmesi
+[`docs/demo-services-and-data-collection.md`](../../docs/demo-services-and-data-collection.md)
+dosyasında tutulur.
+
 # Veri akışı
 
 ```text

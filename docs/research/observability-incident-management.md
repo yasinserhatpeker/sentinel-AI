@@ -81,6 +81,26 @@ aksiyonunu taşır. Deney yalnızca açık bir demo/test flag’i ile çalışı
 | Database slowdown | Dependency bozulması request latency’ye yansır | query latency, timeout, connection use | lead time, correlation quality |
 | Queue backlog | Consumer durması queue age/depth artışı olarak önce görünür | depth, oldest age, dequeue rate | detection delay, recovery visibility |
 
+## 5.1 Demo servisleri ve veri seti stratejisi
+
+İlk çalışan deney ortamı; Django REST API, PostgreSQL, Redis, Celery Worker ve Vue 3
+arayüzünden oluşan küçük bir sistem olacaktır. Bu bileşenler Docker Compose ile
+tekrarlanabilir biçimde çalıştırılır. Amaç üretim ölçeğinde bir uygulama yapmak değil,
+normal HTTP/database/queue akışını ve bu akışın kontrollü bozulmasını gözlemlemektir.
+
+Ana veri seti bu ortamdan üretilecektir. Önce normal yük altında telemetry toplanır;
+sonra her fault senaryosu tekrarlanır ve `scenario_id` ile başlangıç/bitiş zamanları
+etiketlenir. Metric'ler bir dakikalık pencerelere dönüştürülerek `normal`,
+`high_latency`, `error_burst`, `db_slowdown` ve `queue_backlog` sınıfları oluşturulur.
+Isolation Forest çoğunlukla normal training pencereleriyle fit edilir; fault etiketleri
+model başarısını recall, false-positive rate ve detection delay ile ölçmek için saklanır.
+
+Hazır açık kaynak veri setleri ana kaynağın yerine geçmez. Alibaba Cluster Trace
+microservice bağımlılıkları ve performans davranışını karşılaştırmak için; LogHub log
+anomaly deneyleri için; OpenTelemetry Demo ise gerçekçi metric/log/trace üretimini
+denemek için yardımcı kaynaklardır. Dış veri projeye alınmadan önce şema, lisans,
+kişisel veri ve yeniden dağıtım koşulları kontrol edilir.
+
 ## 6. Uygulama kararları
 
 - Önce deterministic threshold/statistical detection; baseline oluşunca Isolation Forest değerlendirmesi.

@@ -29,7 +29,10 @@ Doküman doğrulaması 11.10.2026 tarihinde proje raporu, araştırma kaynaklar�
 
 # Faz 3 — sonraki milestone handoff’u
 
-- [ ] Demo service ve telemetry ingestion API geliştir.
+- [ ] Django REST API, PostgreSQL, Redis ve Celery Worker içeren demo servis ortamını geliştir.
+- [ ] OpenTelemetry ile normal istek, database, queue ve worker akışını instrument et.
+- [ ] Fault injection modülünü ve `high_latency`, `error_burst`, `db_slowdown`, `queue_backlog` senaryolarını ekle.
+- [ ] Normal ve fault telemetry pencerelerini etiketleyen veri üretim/işleme komutlarını ekle.
 - [ ] PostgreSQL telemetry/aggregate modellerini ve Celery aggregation işlerini ekle.
 - [ ] System status ve metric grafiklerini gösteren ilk Vue dashboard’u oluştur.
 - [ ] Contract testleri ve tekrarlanabilir local Docker demo’su ekle.

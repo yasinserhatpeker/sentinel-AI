@@ -25,3 +25,9 @@ AI destekli geliştirme akışını ve SentinelAI domain sınırlarını tanıml
 
 Mevcut milestone araştırması şu dosyada kayıtlıdır:
 [`docs/research/observability-incident-management.md`](docs/research/observability-incident-management.md).
+
+Demo servislerinin çalışma mantığı, fault injection ve veri üretim planı:
+[`docs/demo-services-and-data-collection.md`](docs/demo-services-and-data-collection.md).
+
+Ana veri kaynağı SentinelAI demo ortamında üretilen etiketli telemetry olacaktır.
+Açık kaynak veri setleri yalnızca karşılaştırma ve ek doğrulama amacıyla kullanılacaktır.
