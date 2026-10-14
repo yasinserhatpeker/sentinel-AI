@@ -1,6 +1,6 @@
 ---
 slug: research-system-design
-title: Araştırma, gereksinim analizi ve sistem tasarımı
+title: Research, requirements analysis and system design
 author: Yasin Serhat Peker
 area: platform
 status: active
@@ -10,24 +10,25 @@ branches: codex/sentinelai-foundation
 verification: full
 ---
 
-# Problem tanımı
+# Problem statement
 
-SentinelAI için uygulamaya başlamadan önce ortak bir teknik temel gerekir: kapsam,
-telemetry sözleşmesi, minimum metric seti, mimari sınırlar ve tekrarlanabilir demo
-fault’ları netleşmelidir. Bu kararlar alınmazsa ingestion, detection, correlation ve AI
-analizi uyumsuz varsayımlarla gelişir.
+Before implementation starts, SentinelAI needs a shared technical foundation: scope,
+telemetry contract, minimum metric set, architecture boundaries and repeatable demo
+faults. Without these decisions, ingestion, detection, correlation and AI analysis may
+evolve around incompatible assumptions.
 
-# Kabul kriterleri
+# Acceptance criteria
 
-- [x] Platform hedefi, kapsamı ve kapsam dışı alanları belgelenmiştir. → `manual:doc`
-- [x] Uçtan uca telemetry akışı ve service sınırları belgelenmiştir. → `manual:doc`
-- [x] HTTP, runtime, database ve queue sinyallerini kapsayan versioned telemetry modeli tanımlanmıştır. → `manual:doc`
-- [x] Teknoloji sorumlulukları ve synchronous/asynchronous sınırlar kaydedilmiştir. → `manual:doc`
-- [x] High-latency, error-burst, database-slowdown ve queue-backlog senaryoları tanımlanmıştır. → `manual:doc`
-- [x] Detection ve sonraki incident-correlation değerlendirme metrikleri tanımlanmıştır. → `manual:doc`
-- [x] 29 Ekim milestone’undan önce alınması gereken açık kararlar listelenmiştir. → `manual:doc`
+- [x] Platform goal, scope and non-goals are documented. → `manual:doc`
+- [x] End-to-end telemetry flow and service boundaries are documented. → `manual:doc`
+- [x] A versioned telemetry model covering HTTP, runtime, database and queue signals is defined. → `manual:doc`
+- [x] Technology responsibilities and synchronous/asynchronous boundaries are recorded. → `manual:doc`
+- [x] High-latency, error-burst, database-slowdown and queue-backlog scenarios are defined. → `manual:doc`
+- [x] Detection and follow-up incident-correlation evaluation metrics are defined. → `manual:doc`
+- [x] Open decisions required before the 29 October milestone are listed. → `manual:doc`
 
-# Açık sorular
+# Open questions
 
-15 Ekim tasarım milestone’u için açık soru yoktur. LLM API sağlayıcısının kesin seçimi
-sonraki milestone’da yapılacaktır; yerel LLM, fine-tuning ve model hosting kapsam dışıdır.
+There are no open questions for the 15 October design milestone. The final LLM API
+provider will be selected in a later milestone; local LLM hosting, fine-tuning and model
+hosting are out of scope.

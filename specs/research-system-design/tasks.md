@@ -1,6 +1,6 @@
 ---
 slug: research-system-design
-title: Araştırma, gereksinim analizi ve sistem tasarımı
+title: Research, requirements analysis and system design
 author: Yasin Serhat Peker
 area: platform
 status: active
@@ -8,31 +8,31 @@ created: 2026-10-11 17:05
 updated: 2026-10-11 17:05
 ---
 
-# Faz 1 — tasarım teslimi
+# Phase 1 — design delivery
 
-- [x] Proje raporundan 15 Ekim milestone’u çıkarıldı.
-- [x] Observability sinyalleri, semantic convention’lar ve incident-management yaklaşımı araştırıldı.
-- [x] Birincil kaynaklar kaydedildi ve bulgular SentinelAI kararlarına çevrildi.
-- [x] Kapsam, kapsam dışı alanlar ve ilk demo akışı tanımlandı.
-- [x] Telemetry envelope, dimension’lar ve minimum metric seti tanımlandı.
-- [x] Mimari bileşenler ve synchronous/asynchronous sınırlar tanımlandı.
-- [x] Anomaly, incident ve AI-analysis result sınırları tanımlandı.
-- [x] Fault-injection senaryoları ve değerlendirme metrikleri tanımlandı.
-- [x] Fault injection’ın yalnızca demo/test ortamında çalışmasını sağlayan önlemler tanımlandı.
-- [x] 29 Ekim milestone’u için implementation riskleri ve kararları kaydedildi.
+- [x] Extracted the 15 October milestone from the project report.
+- [x] Researched observability signals, semantic conventions and incident management.
+- [x] Recorded primary sources and converted findings into SentinelAI decisions.
+- [x] Defined scope, non-goals and the first demo flow.
+- [x] Defined the telemetry envelope, dimensions and minimum metric set.
+- [x] Defined architecture components and synchronous/asynchronous boundaries.
+- [x] Defined anomaly, incident and AI-analysis result boundaries.
+- [x] Defined fault-injection scenarios and evaluation metrics.
+- [x] Defined safeguards that keep fault injection in demo/test environments.
+- [x] Recorded implementation risks and decisions for the 29 October milestone.
 
-# Faz 2 — doğrulama
+# Phase 2 — verification
 
-Doküman doğrulaması 11.10.2026 tarihinde proje raporu, araştırma kaynakları ve ortaya
-çıkan requirements/design belgeleri incelenerek tamamlandı. Bu milestone production kodu
-üretmediği için uygulama komutu çalıştırılması gerekmemektedir.
+Documentation verification was completed on 11 October 2026 by reviewing the project
+report, research sources and resulting requirements/design documents. This milestone
+does not produce production code, so no implementation command is required.
 
-# Faz 3 — sonraki milestone handoff’u
+# Phase 3 — next milestone handoff
 
-- [ ] Django REST API, PostgreSQL, Redis ve Celery Worker içeren demo servis ortamını geliştir.
-- [ ] OpenTelemetry ile normal istek, database, queue ve worker akışını instrument et.
-- [ ] Fault injection modülünü ve `high_latency`, `error_burst`, `db_slowdown`, `queue_backlog` senaryolarını ekle.
-- [ ] Normal ve fault telemetry pencerelerini etiketleyen veri üretim/işleme komutlarını ekle.
-- [ ] PostgreSQL telemetry/aggregate modellerini ve Celery aggregation işlerini ekle.
-- [ ] System status ve metric grafiklerini gösteren ilk Vue dashboard’u oluştur.
-- [ ] Contract testleri ve tekrarlanabilir local Docker demo’su ekle.
+- [ ] Build the demo environment with Django REST API, PostgreSQL, Redis and Celery Worker.
+- [ ] Instrument normal request, database, queue and worker flows with OpenTelemetry.
+- [ ] Add fault injection and the `high_latency`, `error_burst`, `db_slowdown` and `queue_backlog` scenarios.
+- [ ] Add data generation/processing commands that label normal and fault telemetry windows.
+- [ ] Add PostgreSQL telemetry/aggregate models and Celery aggregation jobs.
+- [ ] Build the first Vue dashboard with system status and metric charts.
+- [ ] Add contract tests and a reproducible local Docker demo.

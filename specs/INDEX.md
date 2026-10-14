@@ -1,15 +1,15 @@
 # Spec Index
 
-**Append-only — bu dosyayı yeniden biçimlendirme.** Spec oluşturulduğunda satır eklenir;
-durum değiştiğinde aynı satır güncellenir. Mevcut satırlar taşınmaz. Onarım için
-[`README.md`](./README.md) içindeki spec indeks kurallarını kullan.
+**Append-only — do not reformat this file.** Add a row when a spec is created and update
+the same row when its status changes. Do not move existing rows. Use the index rules in
+[`README.md`](./README.md) for repairs.
 
-**Sütunlar:** `slug` kimliği · `title` · işi isteyen insanın `author` adı · `area` ·
-`status` (`draft` / `active` / `done`) · `updated` (`DD/MM/YYYY HH:mm`) · `location`.
+**Columns:** `slug` identity · `title` · requesting human `author` · `area` · `status`
+(`draft` / `active` / `done`) · `updated` (`DD/MM/YYYY HH:mm`) · `location`.
 
 **Identity** is the slug: active specs live at `specs/<slug>/`, archived ones at
 `specs/archive/<YYYY-MM-DD>-<slug>/`.
 
 | slug | title | author | area | status | updated | location |
 | --- | --- | --- | --- | --- | --- | --- |
-| research-system-design | Araştırma, gereksinim analizi ve sistem tasarımı | Yasin Serhat Peker | platform | active | 11/10/2026 17:05 | specs/research-system-design/ |
+| research-system-design | Research, requirements analysis and system design | Yasin Serhat Peker | platform | active | 11/10/2026 17:05 | specs/research-system-design/ |
