@@ -95,11 +95,12 @@ etiketlenir. Metric'ler bir dakikalık pencerelere dönüştürülerek `normal`,
 Isolation Forest çoğunlukla normal training pencereleriyle fit edilir; fault etiketleri
 model başarısını recall, false-positive rate ve detection delay ile ölçmek için saklanır.
 
-Hazır açık kaynak veri setleri ana kaynağın yerine geçmez. Alibaba Cluster Trace
-microservice bağımlılıkları ve performans davranışını karşılaştırmak için; LogHub log
-anomaly deneyleri için; OpenTelemetry Demo ise gerçekçi metric/log/trace üretimini
-denemek için yardımcı kaynaklardır. Dış veri projeye alınmadan önce şema, lisans,
-kişisel veri ve yeniden dağıtım koşulları kontrol edilir.
+Ana verinin yanında dış açık kaynak veri setleri zorunlu benchmark olarak kullanılacaktır.
+Exathlon etiketli zaman serilerinde detector değerlendirmesi; Alibaba Cluster Trace
+microservice bağımlılıkları ve performans davranışı; LogHub log anomaly ve kanıt analizi;
+OpenTelemetry Demo ise Collector ve sinyal uyumluluğu benchmark'ı için kullanılacaktır.
+Her veri seti ortak şemaya dönüştürülecek, sonuçlar ayrı raporlanacak ve projeye alınmadan
+önce şema, lisans, kişisel veri ve yeniden dağıtım koşulları kontrol edilecektir.
 
 ## 6. Uygulama kararları
 

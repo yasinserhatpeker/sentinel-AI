@@ -29,5 +29,6 @@ Mevcut milestone araştırması şu dosyada kayıtlıdır:
 Demo servislerinin çalışma mantığı, fault injection ve veri üretim planı:
 [`docs/demo-services-and-data-collection.md`](docs/demo-services-and-data-collection.md).
 
-Ana veri kaynağı SentinelAI demo ortamında üretilen etiketli telemetry olacaktır.
-Açık kaynak veri setleri yalnızca karşılaştırma ve ek doğrulama amacıyla kullanılacaktır.
+Ana proje verisi SentinelAI demo ortamında üretilen etiketli telemetry olacaktır.
+Buna ek olarak Exathlon, Alibaba Cluster Trace ve LogHub dış benchmark olarak zorunlu
+değerlendirme setleri şeklinde kullanılacaktır.

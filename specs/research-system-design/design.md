@@ -51,11 +51,13 @@ bağlamı birlikte gözlemlenir. Fault injection yalnızca geliştirme/test orta
 çalışan ayrı bir modüldür ve `scenario_id`, hedef, parametre, başlangıç/bitiş zamanı
 ile rollback bilgisini kaydeder.
 
-Ana veri seti dışarıdan hazır alınmayacaktır. Normal telemetry ve kontrollü fault
-deneyleri SentinelAI demo ortamında üretilerek bir dakikalık feature pencerelerine
-dönüştürülecektir. `normal`, `high_latency`, `error_burst`, `db_slowdown` ve
-`queue_backlog` etiketleri fault kayıtlarından türetilecek; bu etiketler öncelikle
-ground truth ve değerlendirme için kullanılacaktır.
+SentinelAI'ın ana eğitim ve fault ground-truth verisi kendi demo ortamında üretilecektir.
+Normal telemetry ve kontrollü fault deneyleri bir dakikalık feature pencerelerine
+dönüştürülecektir. Buna ek olarak dış açık kaynak veri setleri zorunlu benchmark
+katmanı olarak kullanılacaktır. `normal`, `high_latency`, `error_burst`, `db_slowdown`
+ve `queue_backlog` etiketleri kendi fault kayıtlarından türetilecek; dış benchmark
+sonuçları ise modelin farklı veri dağılımlarındaki genellemesini ölçmek için ayrıca
+raporlanacaktır.
 
 Detaylı kurulum, endpoint ve veri sözleşmesi
 [`docs/demo-services-and-data-collection.md`](../../docs/demo-services-and-data-collection.md)

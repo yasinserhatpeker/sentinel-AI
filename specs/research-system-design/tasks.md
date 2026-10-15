@@ -33,6 +33,8 @@ does not produce production code, so no implementation command is required.
 - [ ] Instrument normal request, database, queue and worker flows with OpenTelemetry.
 - [ ] Add fault injection and the `high_latency`, `error_burst`, `db_slowdown` and `queue_backlog` scenarios.
 - [ ] Add data generation/processing commands that label normal and fault telemetry windows.
+- [ ] Add an external benchmark pipeline for Exathlon, Alibaba Cluster Trace and LogHub.
+- [ ] Normalize external benchmark inputs and report dataset-specific detection metrics.
 - [ ] Add PostgreSQL telemetry/aggregate models and Celery aggregation jobs.
 - [ ] Build the first Vue dashboard with system status and metric charts.
 - [ ] Add contract tests and a reproducible local Docker demo.

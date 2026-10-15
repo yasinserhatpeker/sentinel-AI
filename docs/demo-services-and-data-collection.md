@@ -145,14 +145,32 @@ değildir; persistence, ilgili metric'ler ve trace/log kanıtlarıyla birlikte d
 Fault injection etiketleri model başarısını ölçmek içindir: recall, false-positive rate,
 detection delay ve fault türleri arasındaki ayırt edicilik hesaplanır.
 
-## Açık kaynak veri setlerinin rolü
+## Açık kaynak benchmark planı
 
-Hazır veri setleri ana veri kaynağı olmayacaktır; çoğu SentinelAI'ın metric, dependency
-ve fault etiketlerini birebir taşımaz. [Alibaba Cluster Trace](https://github.com/alibaba/clusterdata)
-microservice bağımlılıkları ve performans davranışını karşılaştırmak; [LogHub](https://github.com/logpai/loghub)
-log anomaly denemeleri yapmak için kullanılabilir. [OpenTelemetry Demo](https://opentelemetry.io/docs/demo/)
-ise hazır ML veri seti olarak değil, metric, log ve trace üretimi için yardımcı telemetry
-kaynağıdır.
+Kendi demo verimiz ana proje senaryolarını ve fault ground truth'u sağlayacaktır. Buna
+ek olarak dış açık kaynak veri setleri projenin zorunlu benchmark katmanıdır. Bu setler
+SentinelAI'ın kendi şemasına dönüştürülerek ayrı bir benchmark pipeline'ında işlenecek;
+sonuçlar demo verisiyle karıştırılmadan ayrı raporlanacaktır.
+
+| Benchmark | Kullanım | Beklenen çıktı |
+|---|---|---|
+| [Exathlon](https://github.com/exathlonbenchmark/exathlon) | Etiketli yüksek boyutlu zaman serilerinde anomaly detection | Precision, recall, F1 ve detection delay |
+| [Alibaba Cluster Trace](https://github.com/alibaba/clusterdata) | Microservice runtime metric, response time ve dependency davranışı | Servis performansı ve genelleme karşılaştırması |
+| [LogHub](https://github.com/logpai/loghub) | Log anomaly, template ve kanıt analizi | Log tespit başarısı ve incident evidence kalitesi |
+| [OpenTelemetry Demo](https://opentelemetry.io/docs/demo/) | Metric, log ve trace üretimi için telemetry referansı | Collector ve sinyal uyumluluğu doğrulaması |
+
+Benchmark süreci:
+
+1. Her veri setinin lisans, şema ve etiket yapısı kaydedilir.
+2. Veri, ortak `timestamp`, `service_name`, `metric_name`, `metric_value`, `source_dataset`
+   ve `anomaly_label` alanlarına dönüştürülür.
+3. Eğitim ve test ayrımı veri setinin zaman sırasını bozmayacak şekilde yapılır.
+4. Isolation Forest ve baseline detector aynı benchmark protokolüyle çalıştırılır.
+5. Sonuçlar veri seti bazında raporlanır; farklı dataset'lerin skorları tek havuzda
+   birleştirilmez.
+
+Bu yaklaşım, SentinelAI'ın hem kendi fault senaryolarında hem de dış veri dağılımlarında
+ölçülebilir sonuç vermesini sağlar.
 
 Her dış veri seti alınmadan önce lisans, şema, kişisel veri ve yeniden dağıtım koşulları
 kontrol edilir.
