@@ -50,7 +50,8 @@ the spec moves to `specs/archive/YYYY-MM-DD-slug/` as `done`.
 Do not commit or push until the user approves the proposed commit. `main` is the protected
 release branch. `core-development` is the protected integration branch: create
 `feature/<topic>` branches for new functionality and `fix/<topic>` branches for bug fixes
-from it, then open merge requests back to `core-development`. Commit
+from it, then open merge requests back to `core-development`. Delete the source branch
+after its pull request is merged. Commit
 subjects are English and use `<type>: <short subject>`, followed by a `Spec: <slug>`
 trailer. A completed spec is archived only after its archive gate passes.
 

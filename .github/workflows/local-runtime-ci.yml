@@ -1,0 +1,52 @@
+name: Local runtime CI
+
+on:
+  pull_request:
+    branches: [core-development]
+  push:
+    branches: [core-development]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-runtime-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-local-runtime:
+    name: Verify local Docker runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed source whitespace
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+          else
+            git diff --check "${{ github.event.before }}" "${{ github.sha }}"
+          fi
+
+      - name: Validate Docker Compose configuration
+        run: docker compose --env-file .env.example config -q
+
+      - name: Build and start local runtime
+        run: docker compose --env-file .env.example up --detach --build --wait
+
+      - name: Run Django demo tests
+        run: docker compose --env-file .env.example exec --no-TTY api python manage.py test demo
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example logs --no-color
+
+      - name: Remove local runtime resources
+        if: always()
+        run: docker compose --env-file .env.example down --volumes --remove-orphans
