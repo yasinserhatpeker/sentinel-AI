@@ -56,6 +56,16 @@ CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30
 CELERY_TASK_SOFT_TIME_LIMIT = 20
+CELERY_BEAT_SCHEDULE = {
+    "aggregate-completed-telemetry-minute": {
+        "task": "demo.tasks.aggregate_completed_telemetry_minute",
+        "schedule": 60.0,
+    },
+    "purge-expired-telemetry": {
+        "task": "demo.tasks.purge_expired_telemetry",
+        "schedule": 86400.0,
+    },
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["demo.authentication.DemoTokenAuthentication"],
