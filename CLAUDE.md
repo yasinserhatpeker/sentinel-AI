@@ -7,7 +7,13 @@ spec workflow under `specs/` and the backend/frontend guidance under `.ai/`.
 
 - `backend/` — Django + Django REST Framework API, telemetry ingestion and analysis.
 - `frontend/` — Vue 3 + TypeScript dashboard for system health, metrics and incidents.
+- `telemetry/` — OpenTelemetry Collector configuration and local telemetry tooling.
 - `specs/` — English requirements, design decisions and executable task lists.
+
+SentinelAI is a monorepo. Root configuration owns the local Docker topology and shared
+developer tooling; each application owns its implementation and tests. Backend/frontend
+contracts are explicit and versioned; a shared package is added only when real reuse
+appears.
 
 The technology direction is Python/Django REST, Vue 3 + TypeScript, PostgreSQL,
 Redis + Celery, OpenTelemetry, scikit-learn, a simple external LLM API, and Docker.
@@ -19,6 +25,14 @@ Redis + Celery, OpenTelemetry, scikit-learn, a simple external LLM API, and Dock
 3. Keep telemetry, incident and analysis contracts explicit and versioned.
 4. Never commit credentials, tokens, production payloads or unredacted sensitive telemetry.
 5. Keep logs free of secrets and personal data; use correlation IDs and bounded payloads.
+
+## Spec lifecycle
+
+The full process is in `specs/README.md`; this is only a pointer. Significant work uses
+an English three-file spec. An agent opens it as `draft`, reports decisions, assumptions,
+pending gates and open questions, then stops. Only explicit user approval changes it to
+`active` and permits implementation. When all acceptance criteria and archive checks pass,
+the spec moves to `specs/archive/YYYY-MM-DD-slug/` as `done`.
 
 ## SentinelAI security and reliability invariants
 
@@ -33,9 +47,17 @@ Redis + Celery, OpenTelemetry, scikit-learn, a simple external LLM API, and Dock
 
 ## Git
 
-Do not commit or push until the user approves the proposed commit. Use a task branch
-with the `codex/` prefix when a branch is needed. Commit subjects are English and use
-`<type>: <short subject>`, followed by a `Spec: <slug>` trailer.
+Do not commit or push until the user approves the proposed commit. `main` is the protected
+release branch. `core-development` is the protected integration branch: create
+`feature/<topic>` branches for new functionality and `fix/<topic>` branches for bug fixes
+from it, then open merge requests back to `core-development`. Delete the source branch
+after its pull request is merged. Commit
+subjects are English and use `<type>: <short subject>`, followed by a `Spec: <slug>`
+trailer. A completed spec is archived only after its archive gate passes.
+
+Agents never generate or commit migration files. A required model-state change is
+recorded in its spec; local Docker development generates migrations per environment
+outside the source tree.
 
 ## Precedence
 
