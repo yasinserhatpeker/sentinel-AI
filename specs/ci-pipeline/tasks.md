@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: ci
 status: active
 created: 2026-10-18 16:50
-updated: 2026-10-18 17:03
+updated: 2026-10-18 17:52
 ---
 
 # Tasks — Local runtime CI pipeline
@@ -31,6 +31,7 @@ updated: 2026-10-18 17:03
 | CI syntax and Compose validation | `auto:check` | 2026-10-18: `git diff --check` and `docker compose --env-file .env.example config -q` passed. |
 | Docker integration test | `auto:test` | 2026-10-18: `docker compose --env-file .env.example up --detach --build --wait` succeeded; `docker compose --env-file .env.example exec --no-TTY api python manage.py test demo` passed 4/4. |
 | GitHub pull-request trigger and cleanup | `manual:github` | 2026-10-18: PR #2 started `Local runtime CI`; run 39134147570 completed successfully. Its unconditional cleanup step removed Compose resources. Push-to-core trigger remains pending until this PR merges. |
+| First-push zero-SHA handling | `manual:github` | 2026-10-18: recreated `core-development` emitted an all-zero `before` SHA and exposed the invalid-object failure. The workflow now skips only the diff-only check for that event; verification will occur on the next initial-branch push. |
 
 - [x] Record every automatic command result.
 - [ ] Confirm the proposed commit trailer uses `Spec: ci-pipeline` after user approves a commit.

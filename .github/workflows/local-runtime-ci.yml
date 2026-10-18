@@ -31,7 +31,12 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
           else
-            git diff --check "${{ github.event.before }}" "${{ github.sha }}"
+            before="${{ github.event.before }}"
+            if [[ "$before" == "0000000000000000000000000000000000000000" ]]; then
+              echo "Initial branch push has no previous commit; skipping diff-only whitespace check."
+            else
+              git diff --check "$before" "${{ github.sha }}"
+            fi
           fi
 
       - name: Validate Docker Compose configuration
