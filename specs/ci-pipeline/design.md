@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: ci
 status: active
 created: 2026-10-18 16:50
-updated: 2026-10-18 16:52
+updated: 2026-10-18 17:52
 ---
 
 # Design — Local runtime CI pipeline
@@ -86,6 +86,7 @@ registry publishing or remote service credential.
 |---|---|---|
 | 2026-10-18 | Implement CI only, with no deployment stage | User confirmed the project is intended to run locally. |
 | 2026-10-18 | Exercise the Docker Compose topology in CI | It is the closest available integration check for the local runtime. |
+| 2026-10-18 | Skip only the diff-only whitespace check on an initial branch push | GitHub sends an all-zero previous SHA without a valid comparison base. Pull requests and normal pushes retain the full diff check; Docker and test verification still run. |
 
 ## Rules consulted
 
