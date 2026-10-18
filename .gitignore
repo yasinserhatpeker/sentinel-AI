@@ -1,4 +1,5 @@
 .env
+backend/celerybeat-schedule*
 .venv/
 __pycache__/
 *.py[cod]

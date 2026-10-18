@@ -82,6 +82,30 @@ services:
     volumes:
       - ./backend:/app
 
+  beat:
+    build:
+      context: ./backend
+    command: celery -A config beat --loglevel=INFO
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?Set DEMO_API_TOKEN in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: sentinel-demo-beat
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
 volumes:
   postgres_data:
   local_migrations:

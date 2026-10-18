@@ -4,9 +4,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Order
-from .serializers import OrderCreateSerializer, OrderSerializer
+from .serializers import OrderCreateSerializer, OrderSerializer, TelemetryBatchSerializer
 from .tasks import generate_order_report
 from .telemetry import record_report_task_enqueued
+from .telemetry_ingestion import persist_metric_events
 
 
 class HealthView(APIView):
@@ -28,4 +29,19 @@ class OrderCreateView(APIView):
         return Response(
             {"order": OrderSerializer(order).data, "report_task_id": task.id},
             status=status.HTTP_201_CREATED,
+        )
+
+
+class TelemetryIngestView(APIView):
+    def post(self, request):
+        serializer = TelemetryBatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        inserted, duplicates = persist_metric_events(serializer.validated_data["events"])
+        return Response(
+            {
+                "schema_version": serializer.validated_data["schema_version"],
+                "accepted": inserted,
+                "duplicates": duplicates,
+            },
+            status=status.HTTP_202_ACCEPTED,
         )
