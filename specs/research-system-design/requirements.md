@@ -6,7 +6,7 @@ area: platform
 status: active
 created: 2026-10-11 17:05
 updated: 2026-10-11 17:05
-branches: codex/sentinelai-foundation
+branches: feature/sentinelai-foundation
 verification: full
 ---
 
