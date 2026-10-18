@@ -13,3 +13,4 @@ the same row when its status changes. Do not move existing rows. Use the index r
 | slug | title | author | area | status | updated | location |
 | --- | --- | --- | --- | --- | --- | --- |
 | research-system-design | Research, requirements analysis and system design | Yasin Serhat Peker | platform | active | 11/10/2026 17:05 | specs/research-system-design/ |
+| demo-telemetry-foundation | Demo telemetry foundation | Yasin Serhat Peker | platform | active | 18/10/2026 16:22 | specs/demo-telemetry-foundation/ |
