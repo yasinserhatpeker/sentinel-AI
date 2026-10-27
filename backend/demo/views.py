@@ -81,6 +81,29 @@ class TelemetryServiceListView(APIView):
         return Response({"environment": serializer.validated_data["environment"], "services": list(services)})
 
 
+class SystemOverviewView(APIView):
+    """Aggregate-only local system health; unavailable analysis is never reported as zero."""
+
+    def get(self, request):
+        serializer = TelemetryServiceQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        environment = serializer.validated_data["environment"]
+        services = list(TelemetryAggregate.objects.filter(environment=environment).order_by("service").values_list("service", flat=True).distinct())
+        summary = []
+        for service in services:
+            latest = {row.metric_name: row for row in TelemetryAggregate.objects.filter(environment=environment, service=service).order_by("metric_name", "-window_start").distinct("metric_name")}
+            error_rate = latest.get("http.server.error_rate")
+            latency = latest.get("http.server.duration")
+            queue = latest.get("queue.depth")
+            status_value = "degraded" if error_rate and error_rate.last_value > 0 else "healthy"
+            summary.append({"service": service, "status": status_value, "p95_latency_ms": latency.p95 if latency else None, "queue_depth": queue.last_value if queue else None})
+        slowest_item = max((item for item in summary if item["p95_latency_ms"] is not None), key=lambda item: item["p95_latency_ms"], default=None)
+        busiest_item = max((item for item in summary if item["queue_depth"] is not None), key=lambda item: item["queue_depth"], default=None)
+        slowest = ({"service": slowest_item["service"], "p95_latency_ms": slowest_item["p95_latency_ms"]} if slowest_item else None)
+        busiest = ({"service": busiest_item["service"], "queue_depth": busiest_item["queue_depth"]} if busiest_item else None)
+        return Response({"schema_version": "overview.v1", "environment": environment, "services": summary, "healthy_service_count": sum(item["status"] == "healthy" for item in summary), "degraded_service_count": sum(item["status"] == "degraded" for item in summary), "slowest_service": slowest, "busiest_queue": busiest, "open_incidents": None, "highest_anomaly_score": None, "fault_context_available": False, "latest_fault": None, "dependencies": [["orders-api", "payments-api"], ["payments-api", "inventory-api"], ["inventory-api", "notifications-api"], ["notifications-api", "reporting-worker"]]})
+
+
 class TelemetryAggregateListView(APIView):
     """Return bounded aggregate telemetry without disclosing raw events or dimensions."""
 

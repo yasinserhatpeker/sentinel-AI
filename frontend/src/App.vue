@@ -4,8 +4,8 @@ import { computed, onMounted, ref } from "vue";
 import TrendChart from "./components/TrendChart.vue";
 import SelectField from "./components/SelectField.vue";
 import { dashboardState } from "./telemetry/dashboard-state";
-import { getAggregates, getServices } from "./telemetry/service";
-import type { MetricGroup, TelemetryAggregateResponse, TelemetryPoint } from "./telemetry/types";
+import { getAggregates, getServices, getSystemOverview } from "./telemetry/service";
+import type { MetricGroup, SystemOverviewResponse, TelemetryAggregateResponse, TelemetryPoint } from "./telemetry/types";
 import { TelemetryApiError } from "./telemetry/types";
 import { initialiseCsrf, login, logout, refresh } from "./auth";
 import { demoServiceNames, runDemoActivity, runDemoBatch, type DemoOperation, type DemoServiceName } from "./demo-activity";
@@ -20,6 +20,9 @@ const loading = ref(false);
 const errorCode = ref("");
 const generatingActivity = ref(false);
 const activityMessage = ref("");
+const overview = ref<SystemOverviewResponse | null>(null);
+const overviewLoading = ref(false);
+const overviewError = ref("");
 
 const rangeHours = computed(() => Number.parseInt(range.value, 10));
 const hasToken = computed(() => Boolean(token.value));
@@ -118,6 +121,19 @@ async function loadDashboard() {
     loading.value = false;
   }
 }
+async function loadSystemOverview() {
+  if (!token.value) return;
+  overviewLoading.value = true;
+  overviewError.value = "";
+  try {
+    overview.value = await withFreshAccess((accessToken) => getSystemOverview(accessToken));
+  } catch (error) {
+    overview.value = null;
+    overviewError.value = error instanceof TelemetryApiError ? error.code : "request_failed";
+  } finally {
+    overviewLoading.value = false;
+  }
+}
 
 const operationLabels: Record<DemoOperation, string> = {
   "create-read": "Kayıt oluştur ve listele",
@@ -182,6 +198,7 @@ async function continueWithToken() {
     services.value = discovered.services;
     selectedService.value = discovered.services[0] ?? "orders-api";
     if (discovered.services.length) await loadDashboard();
+    await loadSystemOverview();
   } catch (error) {
     token.value = "";
     errorCode.value = error instanceof TelemetryApiError ? error.code : "request_failed";
@@ -189,7 +206,7 @@ async function continueWithToken() {
     loading.value = false;
   }
 }
-async function restoreSession() { await initialiseCsrf(); try { token.value = await refresh(); const discovered = await getServices(token.value, "local"); services.value = discovered.services; selectedService.value = discovered.services[0] ?? "orders-api"; if (discovered.services.length) await loadDashboard(); } catch { token.value = ""; } }
+async function restoreSession() { await initialiseCsrf(); try { token.value = await refresh(); const discovered = await getServices(token.value, "local"); services.value = discovered.services; selectedService.value = discovered.services[0] ?? "orders-api"; if (discovered.services.length) await loadDashboard(); await loadSystemOverview(); } catch { token.value = ""; } }
 async function signOut() { await logout(); token.value = ""; response.value = null; services.value = []; }
 onMounted(() => void restoreSession());
 </script>
@@ -217,19 +234,30 @@ onMounted(() => void restoreSession());
   <main v-else class="app-shell">
     <section class="workspace" id="dashboard">
       <header class="topbar">
-        <div class="topbar-title"><div class="dashboard-brand">sentinel<span>AI</span></div><h1>Service health</h1></div><button class="secondary-button" @click="signOut">Çıkış</button>
+        <div class="topbar-title"><div class="dashboard-brand">sentinel<span>AI</span></div><h1>Servis sağlığı</h1></div><button class="secondary-button" @click="signOut">Çıkış</button>
       </header>
       <div class="dashboard-content">
+        <section class="mb-[18px] rounded-[14px] border border-[#d6e2dc] bg-[#fbfcfb] p-5 shadow-[0_8px_18px_rgba(12,57,43,.06)]" aria-label="Sistem özeti">
+          <div class="flex items-start justify-between gap-4"><div><p class="eyebrow">SİSTEM ÖZETİ</p><h2 class="mt-1 text-[20px] text-[#203c33]">Yerel sistem sağlığı</h2></div><button class="secondary-button" :disabled="overviewLoading" @click="loadSystemOverview">Yenile</button></div>
+          <p v-if="overviewLoading" class="notice mt-4" role="status">Sistem özeti yükleniyor…</p>
+          <p v-else-if="overviewError" class="notice notice--error mt-4" role="alert">Sistem özeti isteği başarısız: {{ overviewError }}.</p>
+          <p v-else-if="overview && !overview.services.length" class="notice mt-4">Henüz System Overview için aggregate telemetry bulunmuyor.</p>
+          <template v-else-if="overview">
+            <div class="summary-grid !my-4"><article class="metric-card"><p>Sağlıklı servisler</p><strong>{{ overview.healthy_service_count }}</strong><span>en güncel aggregate telemetry</span></article><article class="metric-card"><p>Sorunlu servisler</p><strong>{{ overview.degraded_service_count }}</strong><span>en güncel error-rate sinyali</span></article><article class="metric-card"><p>En yavaş p95</p><strong>{{ overview.slowest_service?.p95_latency_ms?.toFixed(0) ?? '—' }} ms</strong><span>{{ overview.slowest_service?.service ?? 'veri yok' }}</span></article><article class="metric-card"><p>En yoğun queue</p><strong>{{ overview.busiest_queue?.queue_depth ?? '—' }}</strong><span>{{ overview.busiest_queue?.service ?? 'veri yok' }}</span></article><article class="metric-card"><p>Son fault injection</p><strong>{{ overview.fault_context_available ? 'Mevcut' : '—' }}</strong><span>{{ overview.fault_context_available ? 'en güncel fault context' : 'fault context henüz izlenmiyor' }}</span></article></div>
+            <div class="rounded-lg border border-[#e1ebe6] bg-[#f7faf8] px-4 py-3"><p class="m-0 text-[12px] font-semibold text-[#456559]">Dependency zinciri</p><ol class="mt-2 mb-0 flex list-none flex-wrap gap-x-2 gap-y-1 p-0 text-[13px] text-[#315749]"><li v-for="([from, to]) in overview.dependencies" :key="`${from}-${to}`">{{ from }} <span aria-hidden="true">→</span> {{ to }}</li></ol></div>
+            <p class="panel-description mt-3">Incident ve anomaly score modülleri henüz uygulanmadığı için bu alanlar kullanılabilir değil.</p>
+          </template>
+        </section>
         <section class="scope-bar" aria-label="Dashboard scope">
-          <label>Environment<span class="static-field">local</span></label>
+          <label>Ortam<span class="static-field">local</span></label>
           <label>Service<SelectField :model-value="selectedService" :options="serviceOptions" :disabled="!serviceOptions.length" placeholder="Service seçin" @update:model-value="selectService" /></label>
-          <label>Time range<SelectField :model-value="range" :options="rangeOptions" @update:model-value="selectRange" /></label>
+          <label>Zaman aralığı<SelectField :model-value="range" :options="rangeOptions" @update:model-value="selectRange" /></label>
           <button class="secondary-button" :disabled="loading || !selectedService" @click="loadDashboard">Yenile</button>
         </section>
 
         <section class="mb-[18px] flex flex-wrap items-center justify-between gap-4 rounded-[14px] border border-[#d6e2dc] bg-[#fbfcfb] px-[22px] py-[18px] shadow-[0_8px_18px_rgba(12,57,43,.06)]" aria-label="Gerçek demo aktivitesi">
           <div>
-            <p class="m-0 text-[11px] font-bold tracking-[.08em] text-[#61776d]">LIVE DEMO ACTIVITY</p>
+            <p class="m-0 text-[11px] font-bold tracking-[.08em] text-[#61776d]">CANLI DEMO AKTİVİTESİ</p>
             <h2 class="mt-1 mb-0 text-[17px] tracking-[-.025em] text-[#203c33]">Seçili Service için gerçek API işlemi oluştur</h2>
             <p class="mt-1 mb-0 text-[13px] text-[#657a71]">Her buton gerçek CRUD isteği çalıştırır. Dashboard yalnızca HTTP, ORM ve queue işlemlerinin ürettiği telemetry’yi gösterir.</p>
           </div>
@@ -244,11 +272,11 @@ onMounted(() => void restoreSession());
           <p v-if="activityMessage" class="m-0 w-full border-t border-[#e4ece8] pt-3 text-[13px] text-[#3f6455]" role="status">{{ activityMessage }}</p>
         </section>
 
-        <p v-if="viewState === 'error'" class="notice notice--error" role="alert">Dashboard request başarısız: {{ errorCode }}.</p>
+        <p v-if="viewState === 'error'" class="notice notice--error" role="alert">Dashboard isteği başarısız: {{ errorCode }}.</p>
         <p v-else-if="viewState === 'loading'" class="notice" role="status">Seçili Telemetry scope yükleniyor…</p>
         <p v-else-if="viewState === 'empty-services'" class="notice">Henüz yerel bir Service bulunmuyor. Yerel demo Telemetry verisini üretip tekrar deneyin.</p>
         <template v-else-if="hasData">
-          <p v-if="viewState === 'partial'" class="notice notice--warning" role="status">Partial data: {{ partialGroups.join(", ") }} metrics bu scope için kullanılamıyor.</p>
+          <p v-if="viewState === 'partial'" class="notice notice--warning" role="status">Kısmi veri: {{ partialGroups.join(", ") }} metrics bu kapsam için kullanılamıyor.</p>
           <section class="summary-grid" aria-label="Selected service summary">
             <article class="metric-card"><p>Request count</p><strong>{{ latestSampleCount("http.server.request_count") }}</strong><span>en güncel ölçüm penceresindeki HTTP request</span></article>
             <article class="metric-card"><p>Error rate</p><strong>{{ latest("http.server.error_rate", "last") }}%</strong><span>HTTP request’lerin başarısızlık oranı</span></article>
