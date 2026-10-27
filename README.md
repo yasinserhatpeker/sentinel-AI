@@ -1,50 +1,44 @@
 # SentinelAI
 
-SentinelAI is a local, Docker-based observability prototype. Five real demo services create
-HTTP, database and queue activity; SentinelAI collects their telemetry, displays service and
-system health, and prepares five-minute `features.v1` vectors for a future Isolation Forest
-anomaly-detection phase.
+SentinelAI, yerel Docker ortamında çalışan bir observability prototipidir. Beş gerçek demo servisinin ürettiği HTTP, database ve queue aktivitesinden telemetry toplar; service ve system health bilgisini gösterir; ilerideki Isolation Forest anomaly detection aşaması için beş dakikalık `features.v1` vektörleri hazırlar.
 
-The interface is Turkish. Technical terms such as `Service`, `HTTP`, `latency`, `queue`,
-`telemetry`, `p95` and `error rate` remain in English.
+Arayüz Türkçedir. `Service`, `HTTP`, `latency`, `queue`, `telemetry`, `p95` ve `error rate` gibi teknik terimler İngilizce kalır.
 
-> This repository is a local development/demo environment. It does not deploy a production
-> environment, train an anomaly model yet, or call an LLM API.
+> Bu repository yerel development/demo ortamı içindir. Production deployment içermez; henüz anomaly model eğitimi veya LLM API çağrısı yapmaz.
 
-## What is included
+## İçerik
 
 ```text
 Vue 3 dashboard
         │
 Django REST API + JWT authentication
         │
-PostgreSQL ← raw events / minute aggregates / features.v1
+PostgreSQL ← raw event / minute aggregate / features.v1
         │
 Redis + Celery worker + Celery Beat
         │
 orders → payments → inventory → notifications → reporting
 ```
 
-- Five independently containerised Django demo services.
-- A real dependency workflow: an order triggers payment authorisation, stock reservation,
-  notification and reporting work.
-- Real request, ORM and queue telemetry; dashboard values are not seeded or hard-coded.
-- Service dashboard and authenticated System Overview.
-- Raw-event retention, minute aggregates and idempotent five-minute feature backfill.
-- Local-only fault injection utilities for later anomaly evaluation.
+- Birbirinden bağımsız container'larda çalışan beş Django demo service.
+- Gerçek dependency workflow: sipariş, payment authorization, stock reservation, notification ve reporting işini tetikler.
+- Gerçek request, ORM ve queue telemetry'si; dashboard değerleri seed edilmiş veya hard-coded değildir.
+- Service dashboard ve authentication gerektiren System Overview ekranı.
+- Raw event retention, minute aggregate ve idempotent beş dakikalık feature backfill.
+- İlerideki anomaly evaluation için yalnızca local ortamda çalışan fault injection yardımcıları.
 
-## Prerequisites
+## Gereksinimler
 
 - Git
-- Docker Desktop or Docker Engine with the Compose plugin
-- At least 6 GB RAM available for Docker is recommended
-- Ports `5174`, `8000`, `4317` and `4318` must be free
+- Docker Desktop veya Compose plugin'i ile Docker Engine
+- Docker için en az 6 GB boş RAM önerilir
+- `5174`, `8000`, `4317` ve `4318` portları boş olmalıdır
 
-No Python, Node.js, PostgreSQL or Redis installation is required on the host.
+Host makinede Python, Node.js, PostgreSQL veya Redis kurulumu gerekmez.
 
-## Quick start
+## Hızlı başlangıç
 
-### 1. Clone the repository
+### 1. Repository'yi klonlayın
 
 ```bash
 git clone https://github.com/yasinserhatpeker/sentinel-AI.git
@@ -52,114 +46,102 @@ cd sentinel-AI
 git switch feature/dashboard-foundation
 ```
 
-Use `main` instead if the feature branch has already been merged there.
+Feature branch `main` ile merge edildiyse `feature/dashboard-foundation` yerine `main` kullanın.
 
-### 2. Create local environment values
+### 2. Yerel environment değerlerini oluşturun
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and replace all placeholder secrets. They are local-only secrets and must not be
-committed. You can generate suitable values with:
+`.env` dosyasını açıp tüm placeholder secret değerlerini değiştirin. Bunlar yalnızca yerel ortam içindir ve Git'e commit edilmemelidir. Uygun bir secret üretmek için:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Required keys:
+Zorunlu anahtarlar:
 
 ```dotenv
-DJANGO_SECRET_KEY=<a-long-random-local-secret>
-JWT_SIGNING_KEY=<a-different-long-random-local-secret>
+DJANGO_SECRET_KEY=<uzun-rastgele-yerel-secret>
+JWT_SIGNING_KEY=<farkli-uzun-rastgele-yerel-secret>
 POSTGRES_DB=sentinelai
 POSTGRES_USER=sentinelai
-POSTGRES_PASSWORD=<a-local-postgres-password>
+POSTGRES_PASSWORD=<yerel-postgres-parolasi>
 ```
 
-### 3. Start the complete stack
+### 3. Tüm stack'i başlatın
 
 ```bash
 docker compose up -d --build
 ```
 
-The first build downloads images and dependencies, so it can take several minutes. The API
-automatically applies version-controlled Django migrations on startup. The demo services create
-their own local schemas during their startup sequence.
+İlk build image ve dependency indirdiği için birkaç dakika sürebilir. API açılırken version-controlled Django migration'larını otomatik uygular. Demo servisler de başlangıç sırasında kendi yerel schema'larını oluşturur.
 
-Check that the core services are running:
+Ana servislerin çalıştığını kontrol edin:
 
 ```bash
 docker compose ps
 docker compose logs --tail=50 api worker beat
 ```
 
-Open the dashboard at [http://localhost:5174](http://localhost:5174).
+Dashboard'u [http://localhost:5174](http://localhost:5174) adresinden açın.
 
-### 4. Create your local super-admin
+### 4. Yerel super-admin hesabınızı oluşturun
 
-User accounts are deliberately not stored in Git or `.env`. Each developer creates their own
-local account:
+Kullanıcı hesapları Git veya `.env` içinde tutulmaz. Her geliştirici kendi yerel hesabını oluşturur:
 
 ```bash
 docker compose exec api python manage.py createsuperuser
 ```
 
-Enter a username, email and password when prompted, then sign in at `http://localhost:5174`.
-The login accepts either username or email.
+İstenen username, e-posta ve parolayı girin; ardından `http://localhost:5174` adresinden giriş yapın. Login ekranı username veya e-posta kabul eder.
 
-Authentication uses a short-lived access JWT in browser memory and a rotating refresh JWT in an
-`HttpOnly`, `SameSite=Lax` cookie. A page refresh restores the session through the refresh flow.
+Authentication, browser memory içinde kısa ömürlü access JWT; `HttpOnly`, `SameSite=Lax` cookie içinde dönen refresh JWT kullanır. Sayfa yenilenince refresh flow aracılığıyla oturum geri yüklenir.
 
-## First dashboard walkthrough
+## İlk dashboard kullanımı
 
-1. Sign in and select a `Service`.
-2. Use **Kayıt oluştur**, **Güncelle**, **Sil**, or a 10/100/1000-record workload button.
-3. Wait a few seconds, then click **Yenile**.
-4. Inspect real `HTTP`, `Runtime`, `Database` and `Queue` telemetry.
+1. Giriş yapın ve bir `Service` seçin.
+2. **Kayıt oluştur**, **Güncelle**, **Sil** veya 10/100/1000 kayıtlık workload butonlarından birini kullanın.
+3. Birkaç saniye bekleyip **Yenile** butonuna basın.
+4. Gerçek `HTTP`, `Runtime`, `Database` ve `Queue` telemetry'sini inceleyin.
 
-The available demo services are:
+Kullanılabilir demo servisler:
 
-| Service | Responsibility |
+| Service | Sorumluluk |
 | --- | --- |
-| `orders-api` | Starts the order workflow. |
-| `payments-api` | Creates payment authorisations. |
-| `inventory-api` | Creates stock reservations. |
-| `notifications-api` | Creates and delivers notifications. |
-| `reporting-worker` | Queues and completes report jobs. |
+| `orders-api` | Sipariş workflow'unu başlatır. |
+| `payments-api` | Payment authorization kayıtlarını oluşturur. |
+| `inventory-api` | Stock reservation kayıtlarını oluşturur. |
+| `notifications-api` | Notification oluşturur ve iletir. |
+| `reporting-worker` | Report job'larını queue'ya alır ve tamamlar. |
 
-The **Sistem özeti** panel shows healthy/degraded service counts, slowest `p95 latency`,
-busiest `queue` and the documented dependency chain. `Incident`, `anomaly score` and historical
-`fault context` are intentionally shown as unavailable until their later milestones are built.
+**Sistem özeti** paneli healthy/degraded service sayısını, en yavaş `p95 latency` değerini, en yoğun `queue`yu ve tanımlı dependency chain'i gösterir. `Incident`, `anomaly score` ve geçmiş `fault context` alanları, ilgili milestone'lar henüz tamamlanmadığı için bilinçli olarak unavailable gösterilir.
 
-### What the dashboard metrics mean
+### Dashboard metrikleri ne anlama gelir?
 
-- `request count`: number of observed HTTP requests in a measurement window.
-- `p50` / `p95` / `p99 latency`: median, slow-tail and worst-tail request durations.
-- `error rate`: proportion of observed server-side failures.
-- `CPU` / `Memory`: process measurements captured while a real request runs.
-- `query latency`: time spent in ORM/database queries for a request.
-- `queue depth`: real pending background work; it is not a synthetic counter.
+- `request count`: ölçüm penceresinde gözlemlenen HTTP request sayısı.
+- `p50` / `p95` / `p99 latency`: request sürelerinin median, slow-tail ve worst-tail değerleri.
+- `error rate`: gözlemlenen server-side failure'ların oranı.
+- `CPU` / `Memory`: gerçek request çalışırken yakalanan process ölçümleri.
+- `query latency`: bir request içindeki ORM/database query süreleri.
+- `queue depth`: gerçek bekleyen background work sayısıdır; yapay bir sayaç değildir.
 
-When a metric has not been observed, the UI shows missing/partial data instead of inventing a
-zero value.
+Bir metrik henüz gözlemlenmemişse arayüz sıfır değer uydurmak yerine eksik/partial data gösterir.
 
-## Telemetry and ML feature pipeline
+## Telemetry ve ML feature pipeline
 
 ```text
-Raw telemetry event (30 days)
+Raw telemetry event (30 gün)
         ↓
-1-minute aggregate (kept until local reset)
+1-minute aggregate (local reset'e kadar saklanır)
         ↓
-5-minute features.v1 vector (kept until local reset)
+5-minute features.v1 vector (local reset'e kadar saklanır)
 ```
 
-Celery Beat aggregates completed minutes every minute, materialises features every five minutes,
-and removes only raw events older than 30 days. `features.v1` contains fixed, aggregate-only
-columns such as request count, error rate, p95 latency, CPU/memory, database latency and queue
-metrics. Missing signals remain `NULL`, not zero.
+Celery Beat tamamlanan dakikaları her dakika aggregate eder, her beş dakikada feature materialization çalıştırır ve yalnızca 30 günden eski raw event'leri siler. `features.v1`; request count, error rate, p95 latency, CPU/memory, database latency ve queue metric'leri gibi sabit aggregate-only column'lar içerir. Eksik sinyaller sıfır yerine `NULL` kalır.
 
-If you want to materialise the existing local aggregate history immediately, run:
+Var olan yerel aggregate geçmişini hemen materialize etmek için:
 
 ```bash
 docker compose exec api python manage.py shell -c '
@@ -171,30 +153,28 @@ print(backfill_feature_windows(first, last) if first and last else 0)
 '
 ```
 
-Re-running this command is safe: feature rows are upserted, so duplicates are not created.
-See [docs/ml-feature-pipeline.md](docs/ml-feature-pipeline.md) for the full contract.
+Bu komutu tekrar çalıştırmak güvenlidir: feature row'ları upsert edildiğinden duplicate oluşmaz. Ayrıntılı sözleşme için [docs/ml-feature-pipeline.md](docs/ml-feature-pipeline.md) dosyasına bakın.
 
-## Development commands
+## Development komutları
 
-### Rebuild backend code
+### Backend kodunu yeniden build edin
 
-The core backend runs from its Docker image rather than a bind-mounted source directory. Rebuild
-the relevant services after backend changes:
+Ana backend, bind-mounted source directory yerine Docker image içinden çalışır. Backend değişikliklerinden sonra ilgili servisleri yeniden build edin:
 
 ```bash
 docker compose up -d --build api worker beat
 ```
 
-The Vue frontend is bind-mounted for local development; Vite refreshes it automatically.
+Vue frontend local development için bind-mounted çalışır; Vite değişiklikleri otomatik yeniler.
 
-### Run tests
+### Testleri çalıştırın
 
 ```bash
 docker compose run --rm --build api python manage.py test demo.tests
 cd frontend && npm run build
 ```
 
-### Inspect logs
+### Logları inceleyin
 
 ```bash
 docker compose logs -f api
@@ -202,53 +182,48 @@ docker compose logs -f worker
 docker compose logs -f orders-api
 ```
 
-### Stop or reset the local environment
+### Yerel ortamı durdurun veya sıfırlayın
 
 ```bash
 docker compose down
 ```
 
-To remove **all** local databases, queues, accounts and telemetry, use the destructive reset:
+Tüm yerel database'leri, queue'ları, hesapları ve telemetry verilerini silmek için aşağıdaki yıkıcı reset komutunu kullanın:
 
 ```bash
 docker compose down -v
 ```
 
-Run `docker compose up -d --build` again after a reset and create a new super-admin.
+Reset sonrasında `docker compose up -d --build` komutunu yeniden çalıştırın ve yeni bir super-admin oluşturun.
 
-## Troubleshooting
+## Sorun giderme
 
-| Symptom | Check |
+| Belirti | Kontrol |
 | --- | --- |
-| Dashboard cannot connect | Confirm `docker compose ps` shows `api` and `frontend` running, then open `http://localhost:5174`. |
-| Login fails | Create a fresh super-admin with `docker compose exec api python manage.py createsuperuser`. |
-| No telemetry appears | Generate an action from the dashboard, wait briefly for the background publish, then refresh. Inspect `docker compose logs orders-api api`. |
-| Backend code seems stale | Run `docker compose up -d --build api worker beat`. |
-| A port is already in use | Stop the conflicting process or change the host-side port in `docker-compose.yml`. |
-| Local data is inconsistent | Use `docker compose down -v` only if you intentionally want a complete reset. |
+| Dashboard bağlanamıyor | `docker compose ps` çıktısında `api` ve `frontend` servislerinin çalıştığını doğrulayın, sonra `http://localhost:5174` adresini açın. |
+| Login başarısız | `docker compose exec api python manage.py createsuperuser` ile yeni bir super-admin oluşturun. |
+| Telemetry görünmüyor | Dashboard'dan bir işlem üretin, background publish için kısa süre bekleyin, sonra yenileyin. `docker compose logs orders-api api` çıktısını inceleyin. |
+| Backend kodu güncel görünmüyor | `docker compose up -d --build api worker beat` çalıştırın. |
+| Bir port kullanımda | Çakışan process'i durdurun veya `docker-compose.yml` içindeki host-side portu değiştirin. |
+| Yerel veri tutarsız | Tam sıfırlamayı bilinçli olarak istiyorsanız `docker compose down -v` kullanın. |
 
-## Project layout
+## Proje yapısı
 
-- `backend/` — Django REST API, authentication, telemetry persistence, Celery tasks and ML
-  feature materialisation.
+- `backend/` — Django REST API, authentication, telemetry persistence, Celery task'ları ve ML feature materialization.
 - `frontend/` — Vue 3 + TypeScript operator dashboard.
-- `demo-services/` — independently containerised demo applications and their workers.
+- `demo-services/` — bağımsız container'larda çalışan demo application'lar ve worker'ları.
 - `telemetry/` — OpenTelemetry Collector configuration.
-- `docs/` — operator, data collection and ML feature-pipeline documentation.
-- `specs/` — AI-assisted development records, design decisions and test evidence.
+- `docs/` — operator, data collection ve ML feature-pipeline dokümantasyonu.
+- `specs/` — AI-assisted development kayıtları, design decision'lar ve test evidence.
 
-## Current and upcoming scope
+## Mevcut ve sonraki kapsam
 
-Completed: real service workflow, service dashboard, System Overview, raw retention and
-`features.v1` materialisation.
+Tamamlananlar: gerçek service workflow, service dashboard, System Overview, raw retention ve `features.v1` materialization.
 
-Next: Isolation Forest training/scoring, anomaly records, controlled-fault ground truth,
-incident correlation, external benchmark datasets and a redacted external LLM analysis API.
+Sonraki adımlar: Isolation Forest training/scoring, anomaly kayıtları, controlled-fault ground truth, incident correlation, external benchmark dataset'leri ve redacted external LLM analysis API.
 
 ## Contribution workflow
 
-Read `AGENTS.md` before changing the repository. Non-trivial changes use the spec lifecycle in
-[`specs/README.md`](specs/README.md): `draft → active → verified → done/archive`.
+Repository üzerinde değişiklik yapmadan önce `AGENTS.md` dosyasını okuyun. Kapsamlı değişikliklerde [`specs/README.md`](specs/README.md) içindeki spec lifecycle kullanılır: `draft → active → verified → done/archive`.
 
-Use `feature/<name>` or `fix/<name>` branches. Changes merge through pull requests; source
-branches should be deleted after merging.
+`feature/<name>` veya `fix/<name>` branch formatını kullanın. Değişiklikler pull request üzerinden merge edilir; source branch merge sonrasında silinmelidir.
