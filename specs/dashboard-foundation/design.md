@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: frontend
 status: active
 created: 2026-10-27 14:10
-updated: 2026-10-27 15:22
+updated: 2026-10-27 14:39
 ---
 
 # Design — Local telemetry dashboard foundation
@@ -14,9 +14,10 @@ updated: 2026-10-27 15:22
 
 Create a small Vue 3 + TypeScript dashboard under `frontend/`, using the Composition API
 and typed API view models. It will be served locally through a Docker Compose service and
-will talk directly to the local Django API. A local user enters the existing demo token in
-the dashboard; the token remains in reactive in-memory state only and is never placed in
-local storage, a URL, source code, analytics, or a committed environment file.
+will talk directly to the local Django API. A local super-admin signs in with their username or
+email and password. The short-lived access JWT remains in reactive in-memory state, while the
+rotating refresh JWT is an `HttpOnly` cookie; neither is placed in local storage, a URL, source
+file, analytics payload or committed environment file.
 
 The backend adds read-only `telemetry.v1` service-discovery and aggregate endpoints. Every
 aggregate request must specify `environment`, `service`, `start`, and `end`; the API applies
@@ -33,37 +34,35 @@ there are no decorative AI illustrations, generative-looking gradients, mascot i
 unrelated iconography. Icons, where useful, are small familiar functional SVGs accompanied by
 text labels or accessible names. Status never relies on colour alone.
 
-For the first usable local walkthrough, demo metric events are generated through the
-existing authenticated telemetry API using a documented deterministic sample script or
-management command. The dashboard never invents measurements: unavailable metric groups
-render an explicit partial-data state. Native OTLP-to-storage forwarding remains separate
-from this dashboard contract.
+For the local walkthrough, real requests to the five demo service APIs and report jobs produce
+the metric events. The dashboard never invents measurements: unavailable metric groups render an
+explicit partial-data state. Native OTLP-to-storage forwarding remains separate from this
+dashboard contract.
 
 ## Blocking decisions
 
 ### Data ownership and retention
 
-- Status: `confirmed: dashboard queries existing local synthetic aggregate data only; no new
-  persisted model is planned.`
+- Status: `confirmed: dashboard queries existing local aggregates derived from real demo-service
+  activity; no new persisted dashboard model is planned.`
 - Raw-event 30-day retention and aggregate retention remain unchanged.
 - Migration required: no, unless implementation discovers an indispensable additive index;
   any such need will be recorded and generated only in local Docker, never committed.
 
 ### Authentication and query visibility
 
-- Status: `confirmed: the existing static demo token is entered into the local dashboard per browser
-  session and is sent as `Authorization: Demo <token>`. Read scope always includes explicit
-  environment, service and UTC start/end timestamps. Dashboard defaults are visible and may
-  be changed by the user.
-- Denial behaviour: missing/invalid token, omitted scope, malformed timestamps, unknown
+- Status: `confirmed: a local Django super-admin signs in per browser session. Read requests use
+  an in-memory Bearer access JWT; scope always includes explicit environment, service and UTC
+  start/end timestamps. Dashboard defaults are visible and may be changed by the user.`
+- Denial behaviour: missing/invalid JWT, omitted scope, malformed timestamps, unknown
   service, and a range exceeding the documented maximum receive stable denial responses;
   the UI renders a safe error state without exposing the token.
 
 ### Mutation, audit and logging
 
 - Status: `not_applicable: the dashboard and its new backend endpoints are read-only.`
-- State-changing paths: none; telemetry sample generation remains an explicit local demo
-  command, not a dashboard side effect.
+- State-changing paths: none; demo domain requests happen outside the dashboard and are not a
+  dashboard side effect.
 - Audit and safe logging decision: client errors log only bounded status/code metadata;
   no token, raw event payload or sensitive dimension is rendered or logged.
 
@@ -114,7 +113,7 @@ from this dashboard contract.
 
 | Option | Why not |
 |---|---|
-| Put the demo token in `VITE_*` configuration | Browser build variables are exposed to users and are not a safe secret store. |
+| Put a JWT or machine credential in `VITE_*` configuration | Browser build variables are exposed to users and are not a safe secret store. |
 | Fetch unscoped aggregate data then filter in Vue | Widens data visibility and increases query cost; scope must be enforced by the API. |
 | Render fabricated zero-valued charts for missing series | Misrepresents coverage and can mislead later anomaly evaluation. |
 | Add anomaly/incident screens now | Detection, correlation and incident contracts belong to later milestones. |
@@ -123,8 +122,8 @@ from this dashboard contract.
 
 ## API and data contract
 
-- Endpoint(s): token-protected local service discovery under `/api/telemetry/v1/` and a
-  token-protected aggregate read endpoint with required environment/service/start/end query
+- Endpoint(s): JWT-protected local service discovery under `/api/telemetry/v1/` and a
+  JWT-protected aggregate read endpoint with required environment/service/start/end query
   parameters; exact route names, serializer fields and max range are frozen in tests.
 - Event/schema fields: aggregate window, metric identifier/unit, scope context, count,
   min/max/average/last/p50/p95/p99, plus availability metadata. No raw event payload is
@@ -139,18 +138,18 @@ from this dashboard contract.
   operator-facing local workflow.
 - Possibly affected: upcoming anomaly, incident and fault modules consume the same scope and
   aggregate contract.
-- Risk: dashboard appears empty without locally generated sample telemetry; date/time and
+- Risk: dashboard appears empty without real local demo-service activity; date/time and
   scope mismatch can confuse users; chart libraries increase build complexity.
-- Recommendation: approve the proposed token UX and four metric groups, then implement the
-  smallest typed dashboard and read contract before expanding charts or adding fault controls.
+- Recommendation: preserve the JWT login and four metric groups, then evolve the typed dashboard
+  and read contract before expanding charts or adding fault controls.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
-| 2026-10-27 | Use session-memory token entry for local dashboard access | It honors the existing demo-token decision without persisting a token in the browser. |
+| 2026-10-27 | Use short-lived in-memory access JWT with rotating `HttpOnly` refresh cookie | It supports authenticated local super-admin access without persistent browser token storage. |
 | 2026-10-27 | Require environment/service/time scope on all aggregate reads | It follows the project visibility invariant and keeps queries bounded. |
-| 2026-10-27 | Treat unavailable metric groups as partial data | Dashboard must not create false operational confidence from synthetic zeros. |
+| 2026-10-27 | Treat unavailable metric groups as partial data | Dashboard must not create false operational confidence from fabricated zeros. |
 | 2026-10-27 | Use restrained forest/emerald visual tokens and functional icons only | The interface should feel like a credible internal operations product, not a decorative AI demo. |
 
 ## Rules consulted
