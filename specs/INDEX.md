@@ -18,3 +18,5 @@ the same row when its status changes. Do not move existing rows. Use the index r
 | dashboard-foundation | Local telemetry dashboard foundation | Yasin Serhat Peker | frontend | active | 27/10/2026 14:10 | specs/dashboard-foundation/ |
 | telemetry-ingestion | Telemetry ingestion and minute aggregation | Yasin Serhat Peker | telemetry | done | 18/10/2026 17:48 | specs/archive/2026-10-18-telemetry-ingestion/ |
 | auth-super-admin-login | Local super-admin JWT authentication | Yasin Serhat Peker | backend | active | 27/10/2026 15:35 | specs/auth-super-admin-login/ |
+| demo-microservices | Local demo microservice topology | Yasin Serhat Peker | platform | active | 27/10/2026 14:39 | specs/demo-microservices/ |
+| service-dependency-workflow | Order-driven service dependency workflow | Yasin Serhat Peker | platform | draft | 27/10/2026 15:30 | specs/service-dependency-workflow/ |
