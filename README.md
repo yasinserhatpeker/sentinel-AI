@@ -1,103 +1,254 @@
 # SentinelAI
 
-SentinelAI, AI destekli bir observability ve incident-analysis platformudur. Service
-telemetry’sini toplar, anomalileri tespit eder, ilişkili sinyalleri incident altında
-birleştirir ve açıklanabilir kök neden hipotezleri ile inceleme önerileri üretir.
+SentinelAI is a local, Docker-based observability prototype. Five real demo services create
+HTTP, database and queue activity; SentinelAI collects their telemetry, displays service and
+system health, and prepares five-minute `features.v1` vectors for a future Isolation Forest
+anomaly-detection phase.
 
-## Milestone 1 — 15 October 2026
+The interface is Turkish. Technical terms such as `Service`, `HTTP`, `latency`, `queue`,
+`telemetry`, `p95` and `error rate` remain in English.
 
-İlk milestone araştırma, gereksinim analizi ve sistem tasarımıdır. Teslimatı;
-`specs/research-system-design/` altında kapsamı, telemetry sözleşmelerini, mimari sınırları,
-minimum metric setini ve kontrollü fault-injection senaryolarını kapsar.
+> This repository is a local development/demo environment. It does not deploy a production
+> environment, train an anomaly model yet, or call an LLM API.
 
-## Teknoloji yönü
+## What is included
 
-Python/Django REST Framework, Vue 3 + TypeScript, PostgreSQL, Redis + Celery,
-OpenTelemetry, scikit-learn, a simple external LLM API, and Docker.
-
-## Monorepo layout
-
-- `backend/` — Django REST demo API, Celery Worker and later telemetry ingestion.
-- `frontend/` — Vue dashboard; implemented in the dashboard spec, not the first telemetry foundation.
-- `telemetry/` — OpenTelemetry Collector configuration and local signal inspection.
-- `specs/` — approved development records and verification evidence.
-- Root — Docker Compose and local environment examples.
-
-Shared packages are deliberately absent until a concrete cross-application reuse case exists.
-
-## First local demo
-
-Copy `.env.example` to `.env`, set local-only values, then run:
-
-```bash
-docker compose up --build
+```text
+Vue 3 dashboard
+        │
+Django REST API + JWT authentication
+        │
+PostgreSQL ← raw events / minute aggregates / features.v1
+        │
+Redis + Celery worker + Celery Beat
+        │
+orders → payments → inventory → notifications → reporting
 ```
 
-Local demo telemetry uses an HMAC signature derived from `DJANGO_SECRET_KEY`; no separate
-telemetry token is stored in `.env`. The raw secret is never rendered in Vue, logged or sent over
-HTTP.
+- Five independently containerised Django demo services.
+- A real dependency workflow: an order triggers payment authorisation, stock reservation,
+  notification and reporting work.
+- Real request, ORM and queue telemetry; dashboard values are not seeded or hard-coded.
+- Service dashboard and authenticated System Overview.
+- Raw-event retention, minute aggregates and idempotent five-minute feature backfill.
+- Local-only fault injection utilities for later anomaly evaluation.
 
-Create a local administrator, then sign in with its email and password:
+## Prerequisites
+
+- Git
+- Docker Desktop or Docker Engine with the Compose plugin
+- At least 6 GB RAM available for Docker is recommended
+- Ports `5174`, `8000`, `4317` and `4318` must be free
+
+No Python, Node.js, PostgreSQL or Redis installation is required on the host.
+
+## Quick start
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/yasinserhatpeker/sentinel-AI.git
+cd sentinel-AI
+git switch feature/dashboard-foundation
+```
+
+Use `main` instead if the feature branch has already been merged there.
+
+### 2. Create local environment values
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and replace all placeholder secrets. They are local-only secrets and must not be
+committed. You can generate suitable values with:
+
+```bash
+openssl rand -hex 32
+```
+
+Required keys:
+
+```dotenv
+DJANGO_SECRET_KEY=<a-long-random-local-secret>
+JWT_SIGNING_KEY=<a-different-long-random-local-secret>
+POSTGRES_DB=sentinelai
+POSTGRES_USER=sentinelai
+POSTGRES_PASSWORD=<a-local-postgres-password>
+```
+
+### 3. Start the complete stack
+
+```bash
+docker compose up -d --build
+```
+
+The first build downloads images and dependencies, so it can take several minutes. The API
+automatically applies version-controlled Django migrations on startup. The demo services create
+their own local schemas during their startup sequence.
+
+Check that the core services are running:
+
+```bash
+docker compose ps
+docker compose logs --tail=50 api worker beat
+```
+
+Open the dashboard at [http://localhost:5174](http://localhost:5174).
+
+### 4. Create your local super-admin
+
+User accounts are deliberately not stored in Git or `.env`. Each developer creates their own
+local account:
 
 ```bash
 docker compose exec api python manage.py createsuperuser
 ```
 
-The command is intentionally interactive: credentials are neither stored in the repository nor
-read from environment variables. Each developer may create their own local super-admin account.
-After signing in at [http://localhost:5174](http://localhost:5174), the browser keeps the short-lived
-access JWT only in memory and sends the rotating refresh JWT as an `HttpOnly` cookie.
+Enter a username, email and password when prompted, then sign in at `http://localhost:5174`.
+The login accepts either username or email.
 
-For a direct API check, obtain an access JWT through the sign-in flow and use it as a Bearer token:
+Authentication uses a short-lived access JWT in browser memory and a rotating refresh JWT in an
+`HttpOnly`, `SameSite=Lax` cookie. A page refresh restores the session through the refresh flow.
 
-```bash
-curl -X POST http://localhost:8000/api/orders/ \
-  -H "Authorization: Bearer <access-jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"reference":"ORDER-001","amount":"19.99"}'
+## First dashboard walkthrough
+
+1. Sign in and select a `Service`.
+2. Use **Kayıt oluştur**, **Güncelle**, **Sil**, or a 10/100/1000-record workload button.
+3. Wait a few seconds, then click **Yenile**.
+4. Inspect real `HTTP`, `Runtime`, `Database` and `Queue` telemetry.
+
+The available demo services are:
+
+| Service | Responsibility |
+| --- | --- |
+| `orders-api` | Starts the order workflow. |
+| `payments-api` | Creates payment authorisations. |
+| `inventory-api` | Creates stock reservations. |
+| `notifications-api` | Creates and delivers notifications. |
+| `reporting-worker` | Queues and completes report jobs. |
+
+The **Sistem özeti** panel shows healthy/degraded service counts, slowest `p95 latency`,
+busiest `queue` and the documented dependency chain. `Incident`, `anomaly score` and historical
+`fault context` are intentionally shown as unavailable until their later milestones are built.
+
+### What the dashboard metrics mean
+
+- `request count`: number of observed HTTP requests in a measurement window.
+- `p50` / `p95` / `p99 latency`: median, slow-tail and worst-tail request durations.
+- `error rate`: proportion of observed server-side failures.
+- `CPU` / `Memory`: process measurements captured while a real request runs.
+- `query latency`: time spent in ORM/database queries for a request.
+- `queue depth`: real pending background work; it is not a synthetic counter.
+
+When a metric has not been observed, the UI shows missing/partial data instead of inventing a
+zero value.
+
+## Telemetry and ML feature pipeline
+
+```text
+Raw telemetry event (30 days)
+        ↓
+1-minute aggregate (kept until local reset)
+        ↓
+5-minute features.v1 vector (kept until local reset)
 ```
 
-The OpenTelemetry Collector prints received traces and metrics to its container logs.
+Celery Beat aggregates completed minutes every minute, materialises features every five minutes,
+and removes only raw events older than 30 days. `features.v1` contains fixed, aggregate-only
+columns such as request count, error rate, p95 latency, CPU/memory, database latency and queue
+metrics. Missing signals remain `NULL`, not zero.
 
-## Local dashboard walkthrough
+If you want to materialise the existing local aggregate history immediately, run:
 
-After the stack starts, create records through the five demo service APIs. Each HTTP request
-and report task emits telemetry measured during that real execution; no seed command or fixed
-metric profile is used.
+```bash
+docker compose exec api python manage.py shell -c '
+from demo.models import TelemetryAggregate
+from demo.telemetry_ingestion import backfill_feature_windows
+first = TelemetryAggregate.objects.order_by("window_start").values_list("window_start", flat=True).first()
+last = TelemetryAggregate.objects.order_by("-window_start").values_list("window_start", flat=True).first()
+print(backfill_feature_windows(first, last) if first and last else 0)
+'
+```
 
-Open [http://localhost:5174](http://localhost:5174), sign in with a local super-admin, select
-one of the five demo services (`orders-api`, `inventory-api`, `payments-api`, `reporting-worker`
-or `notifications-api`) and choose a time range. The access JWT remains only in browser memory; a
-page refresh obtains a new one via the rotating, database-revocable refresh cookie.
+Re-running this command is safe: feature rows are upserted, so duplicates are not created.
+See [docs/ml-feature-pipeline.md](docs/ml-feature-pipeline.md) for the full contract.
 
-The initial panels show:
+## Development commands
 
-- HTTP request count, error rate and p50/p95/p99 latency. **p95** means 95% of sampled
-  requests completed at or below that duration.
-- Runtime CPU and memory utilisation.
-- Database connection usage and query latency.
-- Queue depth, oldest-message age, enqueue/dequeue rate and failed task count.
+### Rebuild backend code
 
-When a metric group has no aggregate point, the UI reports **partial data** rather than
-presenting a fabricated zero.
+The core backend runs from its Docker image rather than a bind-mounted source directory. Rebuild
+the relevant services after backend changes:
 
-For live service roles and safe fault injection commands, see
-[`docs/local-dashboard.md`](docs/local-dashboard.md#live-demo-services-and-fault-injection).
+```bash
+docker compose up -d --build api worker beat
+```
 
-## Çalışma kuralları
+The Vue frontend is bind-mounted for local development; Vite refreshes it automatically.
 
-Değişiklikten önce `AGENTS.md` dosyasını oku. Kapsamlı işler için `specs/README.md`,
-uygulama ayrıntıları için backend/frontend `.ai/` kuralları kullanılır. `.ai/` kuralları
-AI destekli geliştirme akışını ve SentinelAI domain sınırlarını tanımlar.
+### Run tests
 
-## Araştırma
+```bash
+docker compose run --rm --build api python manage.py test demo.tests
+cd frontend && npm run build
+```
 
-Mevcut milestone araştırması şu dosyada kayıtlıdır:
-[`docs/research/observability-incident-management.md`](docs/research/observability-incident-management.md).
+### Inspect logs
 
-Demo servislerinin çalışma mantığı, fault injection ve veri üretim planı:
-[`docs/demo-services-and-data-collection.md`](docs/demo-services-and-data-collection.md).
+```bash
+docker compose logs -f api
+docker compose logs -f worker
+docker compose logs -f orders-api
+```
 
-Ana proje verisi SentinelAI demo ortamında üretilen etiketli telemetry olacaktır.
-Buna ek olarak Exathlon, Alibaba Cluster Trace ve LogHub dış benchmark olarak zorunlu
-değerlendirme setleri şeklinde kullanılacaktır.
+### Stop or reset the local environment
+
+```bash
+docker compose down
+```
+
+To remove **all** local databases, queues, accounts and telemetry, use the destructive reset:
+
+```bash
+docker compose down -v
+```
+
+Run `docker compose up -d --build` again after a reset and create a new super-admin.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Dashboard cannot connect | Confirm `docker compose ps` shows `api` and `frontend` running, then open `http://localhost:5174`. |
+| Login fails | Create a fresh super-admin with `docker compose exec api python manage.py createsuperuser`. |
+| No telemetry appears | Generate an action from the dashboard, wait briefly for the background publish, then refresh. Inspect `docker compose logs orders-api api`. |
+| Backend code seems stale | Run `docker compose up -d --build api worker beat`. |
+| A port is already in use | Stop the conflicting process or change the host-side port in `docker-compose.yml`. |
+| Local data is inconsistent | Use `docker compose down -v` only if you intentionally want a complete reset. |
+
+## Project layout
+
+- `backend/` — Django REST API, authentication, telemetry persistence, Celery tasks and ML
+  feature materialisation.
+- `frontend/` — Vue 3 + TypeScript operator dashboard.
+- `demo-services/` — independently containerised demo applications and their workers.
+- `telemetry/` — OpenTelemetry Collector configuration.
+- `docs/` — operator, data collection and ML feature-pipeline documentation.
+- `specs/` — AI-assisted development records, design decisions and test evidence.
+
+## Current and upcoming scope
+
+Completed: real service workflow, service dashboard, System Overview, raw retention and
+`features.v1` materialisation.
+
+Next: Isolation Forest training/scoring, anomaly records, controlled-fault ground truth,
+incident correlation, external benchmark datasets and a redacted external LLM analysis API.
+
+## Contribution workflow
+
+Read `AGENTS.md` before changing the repository. Non-trivial changes use the spec lifecycle in
+[`specs/README.md`](specs/README.md): `draft → active → verified → done/archive`.
+
+Use `feature/<name>` or `fix/<name>` branches. Changes merge through pull requests; source
+branches should be deleted after merging.
