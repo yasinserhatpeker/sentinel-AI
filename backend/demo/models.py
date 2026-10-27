@@ -88,3 +88,36 @@ class TelemetryAggregate(models.Model):
             models.Index(fields=("window_start", "environment", "service", "metric_name")),
         ]
 
+
+class TelemetryFeature(models.Model):
+    """Five-minute, aggregate-only ML feature vector for a service."""
+
+    schema_version = models.CharField(max_length=32, default="features.v1")
+    window_start = models.DateTimeField()
+    environment = models.CharField(max_length=32)
+    service = models.CharField(max_length=96)
+    source_window_count = models.PositiveSmallIntegerField(default=0)
+    request_count = models.FloatField(null=True, blank=True)
+    error_rate = models.FloatField(null=True, blank=True)
+    latency_p95_ms = models.FloatField(null=True, blank=True)
+    cpu_average = models.FloatField(null=True, blank=True)
+    memory_average_mb = models.FloatField(null=True, blank=True)
+    db_query_p95_ms = models.FloatField(null=True, blank=True)
+    queue_depth_max = models.FloatField(null=True, blank=True)
+    queue_oldest_age_max_seconds = models.FloatField(null=True, blank=True)
+    queue_enqueue_count = models.FloatField(null=True, blank=True)
+    queue_dequeue_count = models.FloatField(null=True, blank=True)
+    failed_task_count = models.FloatField(null=True, blank=True)
+    materialized_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("schema_version", "window_start", "environment", "service"),
+                name="unique_telemetry_feature_window_scope",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("window_start", "environment", "service")),
+        ]
+

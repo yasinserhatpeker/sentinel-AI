@@ -3,10 +3,10 @@ slug: service-dependency-workflow
 title: Order-driven service dependency workflow
 author: Yasin Serhat Peker
 area: platform
-status: draft
+status: active
 verification: full
 created: 2026-10-27 15:30
-updated: 2026-10-27 15:30
+updated: 2026-10-27 15:45
 branches: core-development
 ---
 
