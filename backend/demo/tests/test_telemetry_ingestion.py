@@ -1,7 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -51,6 +51,7 @@ class TelemetryIngestionTests(TestCase):
         self.assertEqual(event.metric_name, "http.server.duration")
         self.assertTrue(event.dimensions_fingerprint)
         self.assertIsNotNone(event.ingested_at)
+        self.assertTrue(TelemetryAggregate.objects.exists())
 
     def test_duplicate_delivery_is_safe(self) -> None:
         payload = self.payload()
@@ -72,6 +73,27 @@ class TelemetryIngestionTests(TestCase):
         self.assertEqual(unauthorized_response.status_code, 401)
         self.assertEqual(unauthorized_response.data, {"error": {"code": "authentication_required"}})
         self.assertEqual(TelemetryEvent.objects.count(), 0)
+
+    @override_settings(SECRET_KEY="test-django-secret")
+    def test_local_machine_signature_can_ingest_without_a_browser_jwt(self) -> None:
+        from demo.machine_authentication import DemoTelemetryTokenAuthentication
+
+        accepted = self.client.post(
+            "/api/telemetry/v1/",
+            self.payload(),
+            format="json",
+            HTTP_X_TELEMETRY_SIGNATURE=DemoTelemetryTokenAuthentication.expected_signature(),
+        )
+        denied = self.client.post(
+            "/api/telemetry/v1/",
+            self.payload(),
+            format="json",
+            HTTP_X_TELEMETRY_SIGNATURE="wrong-signature",
+        )
+
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(denied.data, {"error": {"code": "authentication_failed"}})
 
     def test_aggregation_is_deterministic_and_safe_to_retry(self) -> None:
         window = self.observed_at.replace(second=0, microsecond=0)

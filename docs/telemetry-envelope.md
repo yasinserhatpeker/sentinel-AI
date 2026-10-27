@@ -1,8 +1,10 @@
 # Telemetry envelope v1
 
-SentinelAI accepts local synthetic metric events through `POST /api/telemetry/v1/`.
-The endpoint uses the existing `Authorization: Demo <token>` demo authentication and is
-not a public or production ingestion endpoint.
+SentinelAI accepts local metric events measured by the demo services through `POST /api/telemetry/v1/`. Browser
+administrators use their short-lived `Authorization: Bearer <access-jwt>` token. The five local
+demo containers instead send an `X-Telemetry-Signature` HMAC derived from the existing
+`DJANGO_SECRET_KEY`. The raw secret is never sent to Vue, returned by an endpoint or logged.
+This is a local development ingestion boundary, not a public production endpoint.
 
 ## Envelope
 
@@ -34,10 +36,12 @@ data.
 
 ## Storage and aggregation
 
-Raw events are local synthetic data and are deleted after 30 days by a scheduled Celery
+Raw events are local technical telemetry and are deleted after 30 days by a scheduled Celery
 task. A second scheduled task aggregates completed one-minute UTC windows by metric scope.
 Each aggregate stores count, minimum, maximum, average, last value, p50, p95, and p99.
 
-The OpenTelemetry Collector continues to receive OTLP signals. An OTLP-to-envelope adapter
-is intentionally a future integration: storage code depends on this bounded SentinelAI
-contract rather than on a Collector transport implementation.
+The OpenTelemetry Collector remains the local OTLP inspection boundary. The dashboard's
+validated `telemetry.v1` metrics are published to the core API through the separate scoped
+machine credential: the stock Collector cannot translate arbitrary OTLP payloads into this
+application-specific envelope without a dedicated adapter. This keeps the transport distinction
+explicit rather than pretending that a Collector debug exporter persists dashboard data.
