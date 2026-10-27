@@ -48,6 +48,9 @@ jobs:
       - name: Run Django demo tests
         run: docker compose --env-file .env.example exec --no-TTY api python manage.py test demo
 
+      - name: Build Vue dashboard
+        run: docker compose --env-file .env.example exec --no-TTY frontend npm run build
+
       - name: Show service logs on failure
         if: failure()
         run: docker compose --env-file .env.example logs --no-color

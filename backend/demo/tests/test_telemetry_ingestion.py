@@ -1,18 +1,19 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from demo.models import TelemetryAggregate, TelemetryEvent
 from demo.telemetry_ingestion import aggregate_minute, purge_expired_events
+from demo.tests.helpers import bearer_token, create_superuser
 
 
-@override_settings(DEMO_API_TOKEN="test-token")
 class TelemetryIngestionTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
+        self.user = create_superuser()
         self.observed_at = timezone.now().replace(second=10, microsecond=0)
 
     def payload(self, **event_overrides):
@@ -37,7 +38,7 @@ class TelemetryIngestionTests(TestCase):
             "/api/telemetry/v1/",
             payload,
             format="json",
-            HTTP_AUTHORIZATION="Demo test-token",
+            HTTP_AUTHORIZATION=bearer_token(self.user),
         )
 
     def test_valid_batch_is_normalized_and_stored(self) -> None:
@@ -69,7 +70,7 @@ class TelemetryIngestionTests(TestCase):
         self.assertEqual(malformed_response.status_code, 400)
         self.assertEqual(malformed_response.data, {"error": {"code": "validation_failed"}})
         self.assertEqual(unauthorized_response.status_code, 401)
-        self.assertEqual(unauthorized_response.data, {"error": {"code": "demo_token_required"}})
+        self.assertEqual(unauthorized_response.data, {"error": {"code": "authentication_required"}})
         self.assertEqual(TelemetryEvent.objects.count(), 0)
 
     def test_aggregation_is_deterministic_and_safe_to_retry(self) -> None:
@@ -109,3 +110,73 @@ class TelemetryIngestionTests(TestCase):
 
         self.assertEqual(deleted, 1)
         self.assertFalse(TelemetryEvent.objects.exists())
+
+    def test_scoped_aggregate_contract_does_not_expose_raw_events(self) -> None:
+        window = self.observed_at.replace(second=0, microsecond=0)
+        self.post(
+            self.payload(
+                observed_at=(window + timedelta(seconds=1)).isoformat(),
+                metric={"name": "http.server.duration", "value": 120.0, "unit": "ms"},
+            )
+        )
+        aggregate_minute(window)
+
+        response = self.client.get(
+            "/api/telemetry/v1/aggregates/",
+            {
+                "environment": "local",
+                "service": "sentinel-demo-api",
+                "start": window.isoformat(),
+                "end": (window + timedelta(minutes=1)).isoformat(),
+            },
+            HTTP_AUTHORIZATION=bearer_token(self.user),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["schema_version"], "telemetry.v1")
+        self.assertEqual(response.data["scope"]["service"], "sentinel-demo-api")
+        self.assertEqual(len(response.data["points"]), 1)
+        self.assertNotIn("dimensions", response.data["points"][0])
+        self.assertNotIn("event_id", response.data["points"][0])
+
+    def test_aggregate_contract_denies_missing_scope_unknown_service_and_broad_range(self) -> None:
+        missing_scope = self.client.get(
+            "/api/telemetry/v1/aggregates/", HTTP_AUTHORIZATION=bearer_token(self.user)
+        )
+        unknown_service = self.client.get(
+            "/api/telemetry/v1/aggregates/",
+            {
+                "environment": "local",
+                "service": "unknown-service",
+                "start": self.observed_at.isoformat(),
+                "end": (self.observed_at + timedelta(minutes=1)).isoformat(),
+            },
+            HTTP_AUTHORIZATION=bearer_token(self.user),
+        )
+        broad_range = self.client.get(
+            "/api/telemetry/v1/aggregates/",
+            {
+                "environment": "local",
+                "service": "sentinel-demo-api",
+                "start": self.observed_at.isoformat(),
+                "end": (self.observed_at + timedelta(hours=25)).isoformat(),
+            },
+            HTTP_AUTHORIZATION=bearer_token(self.user),
+        )
+
+        self.assertEqual(missing_scope.status_code, 400)
+        self.assertEqual(unknown_service.status_code, 404)
+        self.assertEqual(unknown_service.data, {"error": {"code": "telemetry_service_not_found"}})
+        self.assertEqual(broad_range.status_code, 400)
+
+    def test_service_discovery_requires_environment_scope(self) -> None:
+        denied = self.client.get("/api/telemetry/v1/services/", HTTP_AUTHORIZATION=bearer_token(self.user))
+        allowed = self.client.get(
+            "/api/telemetry/v1/services/",
+            {"environment": "local"},
+            HTTP_AUTHORIZATION=bearer_token(self.user),
+        )
+
+        self.assertEqual(denied.status_code, 400)
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.data, {"environment": "local", "services": []})

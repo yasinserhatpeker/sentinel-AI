@@ -7,6 +7,8 @@ def demo_exception_handler(exc, context):
     if response is not None:
         if isinstance(exc, exceptions.ValidationError):
             detail = "validation_failed"
+        elif isinstance(exc, exceptions.NotAuthenticated):
+            detail = "authentication_required"
         else:
             detail = response.data.get("detail", "request_failed")
         response.data = {"error": {"code": str(detail)}}
