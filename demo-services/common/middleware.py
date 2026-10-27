@@ -54,4 +54,8 @@ class TelemetryMiddleware:
             # bounded, route-like technical label that cannot contain query or
             # identifier data (for example, /v1/orders/ -> v1.orders).
             route = re.sub(r"[^a-zA-Z0-9_.-]", ".", request.path.strip("/"))[:64].strip(".") or "root"
-            publish_measurements(service, uuid.uuid4().hex, request_measurements(status_code, duration_ms, query_duration_ms, len(queries), cpu_percent, memory_mb), {"route": route, "status_class": f"{status_code // 100}xx"})
+            correlation_id = request.headers.get("X-Correlation-ID", "")
+            dimensions = {"route": route, "status_class": f"{status_code // 100}xx"}
+            if re.fullmatch(r"[a-f0-9-]{36}", correlation_id):
+                dimensions["correlation_id"] = correlation_id
+            publish_measurements(service, uuid.uuid4().hex, request_measurements(status_code, duration_ms, query_duration_ms, len(queries), cpu_percent, memory_mb), dimensions)

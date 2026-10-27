@@ -49,6 +49,13 @@ not that a synthetic value was chosen. **Queue depth** is the number of waiting 
 **oldest-message age** is how long the oldest waiting message has existed; **enqueue/dequeue rate**
 show how quickly work enters/leaves a queue.
 
+## Order dependency workflow
+
+Creating an order enqueues `orders-worker`, which calls `payments-api`, `inventory-api`,
+`notifications-api` and `reporting-worker` in that order over the private Compose network. Every
+call carries one generated correlation ID as bounded telemetry context. Retry reuses the
+order-reference-keyed downstream records instead of creating duplicates.
+
 Fault injection has no published HTTP endpoint. Target one container from a local terminal:
 
 ```bash
