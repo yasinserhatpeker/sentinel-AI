@@ -33,6 +33,10 @@ Copy `.env.example` to `.env`, set local-only values, then run:
 docker compose up --build
 ```
 
+Local demo telemetry uses an HMAC signature derived from `DJANGO_SECRET_KEY`; no separate
+telemetry token is stored in `.env`. The raw secret is never rendered in Vue, logged or sent over
+HTTP.
+
 Create a local administrator, then sign in with its email and password:
 
 ```bash
@@ -57,16 +61,13 @@ The OpenTelemetry Collector prints received traces and metrics to its container 
 
 ## Local dashboard walkthrough
 
-After the stack starts, seed deterministic **synthetic** dashboard telemetry. This command
-does not use external data or modify source migrations; it creates local raw events and their
-minute aggregates in the Docker database.
-
-```bash
-docker compose exec api python manage.py seed_dashboard_telemetry --minutes 30
-```
+After the stack starts, create records through the five demo service APIs. Each HTTP request
+and report task emits telemetry measured during that real execution; no seed command or fixed
+metric profile is used.
 
 Open [http://localhost:5174](http://localhost:5174), sign in with a local super-admin, select
-`sentinel-demo-api` and choose a time range. The access JWT remains only in browser memory; a
+one of the five demo services (`orders-api`, `inventory-api`, `payments-api`, `reporting-worker`
+or `notifications-api`) and choose a time range. The access JWT remains only in browser memory; a
 page refresh obtains a new one via the rotating, database-revocable refresh cookie.
 
 The initial panels show:
@@ -74,11 +75,14 @@ The initial panels show:
 - HTTP request count, error rate and p50/p95/p99 latency. **p95** means 95% of sampled
   requests completed at or below that duration.
 - Runtime CPU and memory utilisation.
-- Database connection usage, query latency and error count.
+- Database connection usage and query latency.
 - Queue depth, oldest-message age, enqueue/dequeue rate and failed task count.
 
 When a metric group has no aggregate point, the UI reports **partial data** rather than
 presenting a fabricated zero.
+
+For live service roles and safe fault injection commands, see
+[`docs/local-dashboard.md`](docs/local-dashboard.md#live-demo-services-and-fault-injection).
 
 ## Çalışma kuralları
 

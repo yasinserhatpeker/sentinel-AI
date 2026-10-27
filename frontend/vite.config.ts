@@ -12,6 +12,11 @@ export default defineConfig({
         target: "http://api:8000",
         changeOrigin: true,
       },
+      "/demo/orders": { target: "http://orders-api:8080", changeOrigin: true, rewrite: (path) => path.replace(/^\/demo\/orders/, "") },
+      "/demo/inventory": { target: "http://inventory-api:8080", changeOrigin: true, rewrite: (path) => path.replace(/^\/demo\/inventory/, "") },
+      "/demo/payments": { target: "http://payments-api:8080", changeOrigin: true, rewrite: (path) => path.replace(/^\/demo\/payments/, "") },
+      "/demo/reporting": { target: "http://reporting-worker:8080", changeOrigin: true, rewrite: (path) => path.replace(/^\/demo\/reporting/, "") },
+      "/demo/notifications": { target: "http://notifications-api:8080", changeOrigin: true, rewrite: (path) => path.replace(/^\/demo\/notifications/, "") },
     },
     headers: {
       // Vite injects component CSS as <style> nodes in development. Production should serve a

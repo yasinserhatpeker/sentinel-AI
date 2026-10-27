@@ -27,7 +27,7 @@ export interface TelemetryServicesResponse {
 }
 
 export class TelemetryApiError extends Error {
-  constructor(public readonly code: string, message = "Telemetry request failed") {
+  constructor(public readonly code: string, public readonly status: number, message = "Telemetry request failed") {
     super(message);
   }
 }

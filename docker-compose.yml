@@ -1,3 +1,10 @@
+x-demo-service-environment: &demo_service_environment
+  TELEMETRY_INGEST_URL: http://api:8000/api/telemetry/v1/
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+  POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  REDIS_URL: redis://redis:6379/0
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -118,6 +125,148 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
+
+  orders-api:
+    build: { context: ./demo-services, dockerfile: ./orders-api/Dockerfile }
+    depends_on: { orders-db: { condition: service_healthy } }
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: orders-db
+      POSTGRES_DB: orders
+      SENTINEL_SERVICE_NAME: orders-api
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')"], interval: 5s, timeout: 3s, retries: 12 }
+
+  orders-worker:
+    build: { context: ./demo-services, dockerfile: ./orders-api/Dockerfile }
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=orders"]
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: orders-db
+      POSTGRES_DB: orders
+      SENTINEL_SERVICE_NAME: orders-api
+    depends_on: { orders-api: { condition: service_healthy } }
+
+  inventory-api:
+    build: { context: ./demo-services, dockerfile: ./inventory-api/Dockerfile }
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: inventory-db
+      POSTGRES_DB: inventory
+      SENTINEL_SERVICE_NAME: inventory-api
+    depends_on: { inventory-db: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')"], interval: 5s, timeout: 3s, retries: 12 }
+
+  inventory-worker:
+    build: { context: ./demo-services, dockerfile: ./inventory-api/Dockerfile }
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=inventory"]
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: inventory-db
+      POSTGRES_DB: inventory
+      SENTINEL_SERVICE_NAME: inventory-api
+    depends_on: { inventory-api: { condition: service_healthy } }
+
+  payments-api:
+    build: { context: ./demo-services, dockerfile: ./payments-api/Dockerfile }
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: payments-db
+      POSTGRES_DB: payments
+      SENTINEL_SERVICE_NAME: payments-api
+    depends_on: { payments-db: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')"], interval: 5s, timeout: 3s, retries: 12 }
+
+  payments-worker:
+    build: { context: ./demo-services, dockerfile: ./payments-api/Dockerfile }
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=payments"]
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: payments-db
+      POSTGRES_DB: payments
+      SENTINEL_SERVICE_NAME: payments-api
+    depends_on: { payments-api: { condition: service_healthy } }
+
+  reporting-worker:
+    build: { context: ./demo-services, dockerfile: ./reporting-worker/Dockerfile }
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: reporting-db
+      POSTGRES_DB: reporting
+      SENTINEL_SERVICE_NAME: reporting-worker
+    depends_on: { reporting-migrate: { condition: service_completed_successfully } }
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')"], interval: 5s, timeout: 3s, retries: 12 }
+
+  reporting-celery:
+    build: { context: ./demo-services, dockerfile: ./reporting-worker/Dockerfile }
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=reporting"]
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: reporting-db
+      POSTGRES_DB: reporting
+      SENTINEL_SERVICE_NAME: reporting-worker
+    depends_on: { reporting-migrate: { condition: service_completed_successfully } }
+
+  reporting-migrate:
+    build: { context: ./demo-services, dockerfile: ./reporting-worker/Dockerfile }
+    command: ["sh", "-c", "python manage.py makemigrations reporting --noinput && python manage.py migrate --run-syncdb --noinput --fake-initial"]
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: reporting-db
+      POSTGRES_DB: reporting
+      SENTINEL_SERVICE_NAME: reporting-worker
+    depends_on: { reporting-db: { condition: service_healthy } }
+
+  notifications-api:
+    build: { context: ./demo-services, dockerfile: ./notifications-api/Dockerfile }
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: notifications-db
+      POSTGRES_DB: notifications
+      SENTINEL_SERVICE_NAME: notifications-api
+    depends_on: { notifications-db: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')"], interval: 5s, timeout: 3s, retries: 12 }
+
+  notifications-worker:
+    build: { context: ./demo-services, dockerfile: ./notifications-api/Dockerfile }
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=notifications"]
+    environment:
+      <<: *demo_service_environment
+      POSTGRES_HOST: notifications-db
+      POSTGRES_DB: notifications
+      SENTINEL_SERVICE_NAME: notifications-api
+    depends_on: { notifications-api: { condition: service_healthy } }
+
+  orders-db: &demo_database
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"], interval: 5s, timeout: 3s, retries: 20 }
+  inventory-db:
+    <<: *demo_database
+    environment:
+      POSTGRES_DB: inventory
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  payments-db:
+    <<: *demo_database
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  reporting-db:
+    <<: *demo_database
+    environment:
+      POSTGRES_DB: reporting
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  notifications-db:
+    <<: *demo_database
+    environment:
+      POSTGRES_DB: notifications
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
 
 volumes:
   postgres_data:

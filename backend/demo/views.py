@@ -4,7 +4,9 @@ from rest_framework import permissions, status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from .machine_authentication import DemoTelemetryTokenAuthentication
 from .models import Order, TelemetryAggregate
 from .serializers import (
     OrderCreateSerializer,
@@ -15,7 +17,7 @@ from .serializers import (
 )
 from .tasks import generate_order_report
 from .telemetry import record_report_task_enqueued
-from .telemetry_ingestion import persist_metric_events
+from .telemetry_ingestion import aggregate_minute, persist_metric_events
 
 
 class HealthView(APIView):
@@ -41,10 +43,19 @@ class OrderCreateView(APIView):
 
 
 class TelemetryIngestView(APIView):
+    # Browser users retain JWT access; local demo containers use a secret-derived signature.
+    authentication_classes = [DemoTelemetryTokenAuthentication, JWTAuthentication]
+
     def post(self, request):
         serializer = TelemetryBatchSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        inserted, duplicates = persist_metric_events(serializer.validated_data["events"])
+        events = serializer.validated_data["events"]
+        inserted, duplicates = persist_metric_events(events)
+        # Keep the local dashboard responsive after a genuine service request.
+        # The periodic task still recomputes completed windows; this upsert only
+        # exposes the in-progress minute sooner and never fabricates a value.
+        for window in {event["observed_at"].replace(second=0, microsecond=0) for event in events}:
+            aggregate_minute(window)
         return Response(
             {
                 "schema_version": serializer.validated_data["schema_version"],
@@ -109,7 +120,7 @@ class TelemetryAggregateListView(APIView):
         groups = {
             "http": {"http.server.request_count", "http.server.error_rate", "http.server.duration"},
             "runtime": {"runtime.cpu.usage", "runtime.memory.usage"},
-            "database": {"db.connection.usage", "db.query.duration", "db.query.errors"},
+            "database": {"db.connection.usage", "db.query.duration"},
             "queue": {
                 "queue.depth",
                 "queue.oldest_message_age",

@@ -9,7 +9,7 @@ async function readJson<T>(path: string, token: string): Promise<T> {
   const response = await fetch(path, { headers: headers(token) });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { code?: string } } | null;
-    throw new TelemetryApiError(body?.error?.code ?? "request_failed");
+    throw new TelemetryApiError(body?.error?.code ?? "request_failed", response.status);
   }
   return response.json() as Promise<T>;
 }
