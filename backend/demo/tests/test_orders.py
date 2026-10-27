@@ -1,15 +1,16 @@
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from rest_framework.test import APIClient
 
 from demo.models import Order
+from demo.tests.helpers import bearer_token, create_superuser
 
 
-@override_settings(DEMO_API_TOKEN="test-token")
 class OrderCreateTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
+        self.user = create_superuser()
 
     def test_health_check_is_public(self) -> None:
         response = self.client.get("/api/health/")
@@ -24,7 +25,7 @@ class OrderCreateTests(TestCase):
             "/api/orders/",
             {"reference": "ORDER-001", "amount": "19.99"},
             format="json",
-            HTTP_AUTHORIZATION="Demo test-token",
+            HTTP_AUTHORIZATION=bearer_token(self.user),
         )
 
         self.assertEqual(response.status_code, 201)
@@ -36,4 +37,4 @@ class OrderCreateTests(TestCase):
         response = self.client.post("/api/orders/", {"reference": "ORDER-001", "amount": "19.99"}, format="json")
 
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.data, {"error": {"code": "demo_token_required"}})
+        self.assertEqual(response.data, {"error": {"code": "authentication_required"}})
