@@ -64,6 +64,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "demo.tasks.aggregate_completed_telemetry_minute",
         "schedule": 60.0,
     },
+    "materialize-completed-telemetry-features": {
+        "task": "demo.tasks.materialize_completed_telemetry_features",
+        "schedule": 300.0,
+    },
     "purge-expired-telemetry": {
         "task": "demo.tasks.purge_expired_telemetry",
         "schedule": 86400.0,

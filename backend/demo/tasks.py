@@ -3,7 +3,14 @@ from django.core.cache import cache
 
 from .models import Order
 from .telemetry import record_report_task_dequeued, record_report_task_failed
-from .telemetry_ingestion import aggregate_minute, completed_minute_start, purge_expired_events
+from .telemetry_ingestion import (
+    aggregate_minute,
+    backfill_feature_windows,
+    completed_minute_start,
+    feature_window_start,
+    materialize_feature_window,
+    purge_expired_events,
+)
 
 
 @shared_task(bind=True, autoretry_for=(Order.DoesNotExist,), retry_backoff=True, max_retries=3)
@@ -45,3 +52,28 @@ def purge_expired_telemetry(self) -> int:
     """Enforce the approved 30-day local raw-telemetry retention period."""
 
     return purge_expired_events()
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def materialize_completed_telemetry_features(self, window_start: str | None = None) -> int:
+    """Write retry-safe five-minute feature vectors after telemetry aggregation."""
+
+    if window_start:
+        from datetime import datetime
+
+        requested_window = datetime.fromisoformat(window_start.replace("Z", "+00:00"))
+    else:
+        requested_window = feature_window_start(completed_minute_start())
+    return materialize_feature_window(requested_window)
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def backfill_telemetry_features(self, start: str, end: str) -> int:
+    """Bounded internal backfill for local model-training features."""
+
+    from datetime import datetime
+
+    return backfill_feature_windows(
+        datetime.fromisoformat(start.replace("Z", "+00:00")),
+        datetime.fromisoformat(end.replace("Z", "+00:00")),
+    )
