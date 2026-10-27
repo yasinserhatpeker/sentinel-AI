@@ -67,3 +67,25 @@ class TelemetryBatchSerializer(serializers.Serializer):
             raise serializers.ValidationError("telemetry_event_id_duplicate_in_batch")
         return value
 
+
+class TelemetryServiceQuerySerializer(serializers.Serializer):
+    environment = serializers.ChoiceField(choices=("local",))
+
+
+class TelemetryAggregateQuerySerializer(serializers.Serializer):
+    environment = serializers.ChoiceField(choices=("local",))
+    service = serializers.RegexField(r"^[a-z][a-z0-9_.-]{0,95}$")
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+    def validate(self, attrs):
+        start = attrs["start"]
+        end = attrs["end"]
+        if timezone.is_naive(start) or timezone.is_naive(end):
+            raise serializers.ValidationError("telemetry_range_must_be_utc_aware")
+        if end <= start:
+            raise serializers.ValidationError("telemetry_range_invalid")
+        if end - start > timedelta(hours=24):
+            raise serializers.ValidationError("telemetry_range_exceeds_maximum")
+        return attrs
+
