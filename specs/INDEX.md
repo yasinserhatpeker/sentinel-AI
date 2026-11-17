@@ -22,3 +22,5 @@ the same row when its status changes. Do not move existing rows. Use the index r
 | service-dependency-workflow | Order-driven service dependency workflow | Yasin Serhat Peker | platform | active | 27/10/2026 15:45 | specs/service-dependency-workflow/ |
 | system-overview | System overview dashboard | Yasin Serhat Peker | frontend | done | 27/10/2026 19:52 | specs/archive/2026-10-27-system-overview/ |
 | telemetry-retention-features | Telemetry retention and ML feature pipeline | Yasin Serhat Peker | telemetry | done | 27/10/2026 19:58 | specs/archive/2026-10-27-telemetry-retention-features/ |
+| anomaly-detection-fault-experiments | Anomaly detection and fault injection experiments | Yasin Serhat Peker | ml | done | 17/11/2026 16:31 | specs/archive/2026-11-17-anomaly-detection-fault-experiments/ |
+| anomaly-hardening-real-data-readiness | Anomaly hardening and real-data model readiness | Yasin Serhat Peker | ml | active | 17/11/2026 17:00 | specs/anomaly-hardening-real-data-readiness/ |
