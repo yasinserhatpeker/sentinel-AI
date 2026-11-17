@@ -6,7 +6,7 @@ area: ml
 status: active
 verification: full
 created: 2026-11-17 16:52
-updated: 2026-11-17 17:00
+updated: 2026-11-17 23:30
 branches: core-development
 ---
 
@@ -32,6 +32,7 @@ The anomaly milestone works end to end, but manual verification exposed three re
 - [x] System Overview distinguishes active, recovering and latest completed fault information and never labels historical state as active. → `auto:test`
 - [x] A bounded Docker workload runner creates real HTTP, ORM and queue activity across the dependency workflow without writing metric rows directly. → `auto:test`
 - [x] Readiness reporting exposes real feature counts, contiguous-window counts, gaps, missingness, split counts and explicit Isolation Forest/LSTM readiness without raw payloads. → `auto:test`
+- [x] Queue age follows real broker backlog rather than orphaned database state, and baseline detector predictions cannot censor otherwise normal Isolation Forest training rows. → `auto:test`
 - [ ] Every target service reaches at least 50 real `features.v2` rows with no fabricated timestamps; the selected LSTM service reaches at least 60 valid twelve-window journals. → `manual:data`
 - [ ] Isolation Forest trains from real time-ordered data, persists/activates a compatible artifact and produces a traceable live decision for a later completed window. → `manual:api`
 - [ ] The offline LSTM prototype trains and evaluates from chronological train/validation/test journals when the real-data gate is met and is never activated automatically. → `manual:api`
