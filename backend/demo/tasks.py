@@ -56,7 +56,7 @@ def purge_expired_telemetry(self) -> int:
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def materialize_completed_telemetry_features(self, window_start: str | None = None) -> int:
-    """Write retry-safe five-minute feature vectors after telemetry aggregation."""
+    """Write and score retry-safe five-minute feature vectors."""
 
     if window_start:
         from datetime import datetime
@@ -64,7 +64,11 @@ def materialize_completed_telemetry_features(self, window_start: str | None = No
         requested_window = datetime.fromisoformat(window_start.replace("Z", "+00:00"))
     else:
         requested_window = feature_window_start(completed_minute_start())
-    return materialize_feature_window(requested_window)
+    materialized = materialize_feature_window(requested_window)
+    from .detection.service import score_feature_window
+
+    score_feature_window(feature_window_start(requested_window))
+    return materialized
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
@@ -77,3 +81,12 @@ def backfill_telemetry_features(self, start: str, end: str) -> int:
         datetime.fromisoformat(start.replace("Z", "+00:00")),
         datetime.fromisoformat(end.replace("Z", "+00:00")),
     )
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def recover_expired_fault_experiments(self) -> int:
+    """Watchdog that clears expired local faults and closes recovery windows."""
+
+    from .faults import recover_expired_experiments
+
+    return recover_expired_experiments()

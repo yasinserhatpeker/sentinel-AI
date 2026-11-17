@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from demo.models import TelemetryAggregate
+from demo.models import FaultExperiment, TelemetryAggregate
 from demo.tests.helpers import bearer_token, create_superuser
 
 
@@ -52,7 +52,7 @@ class SystemOverviewTests(TestCase):
         response = self.get()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["schema_version"], "overview.v1")
+        self.assertEqual(response.data["schema_version"], "overview.v2")
         self.assertEqual(response.data["environment"], "local")
         self.assertEqual(response.data["healthy_service_count"], 1)
         self.assertEqual(response.data["degraded_service_count"], 1)
@@ -78,3 +78,25 @@ class SystemOverviewTests(TestCase):
         self.assertEqual(response.data["healthy_service_count"], 0)
         self.assertEqual(response.data["slowest_service"], None)
         self.assertEqual(response.data["busiest_queue"], None)
+
+    def test_completed_fault_is_history_and_never_reported_as_active(self) -> None:
+        completed = FaultExperiment.objects.create(
+            environment="local",
+            service="orders-api",
+            fault_type=FaultExperiment.FaultType.HIGH_LATENCY,
+            status=FaultExperiment.Status.COMPLETED,
+            parameters={"delay_ms": 500.0},
+            duration_seconds=60,
+            seed=42,
+            created_by=self.user,
+        )
+
+        response = self.get()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["active_fault_count"], 0)
+        self.assertEqual(response.data["recovering_fault_count"], 0)
+        self.assertEqual(response.data["active_faults"], [])
+        self.assertEqual(response.data["recovering_faults"], [])
+        self.assertIsNone(response.data["latest_fault"])
+        self.assertEqual(response.data["latest_completed_fault"]["id"], str(completed.pk))

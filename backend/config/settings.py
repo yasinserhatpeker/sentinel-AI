@@ -46,6 +46,7 @@ DATABASES = {
 }
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+MODEL_ARTIFACT_DIR = Path(os.environ.get("MODEL_ARTIFACT_DIR", BASE_DIR / ".model-artifacts"))
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -71,6 +72,10 @@ CELERY_BEAT_SCHEDULE = {
     "purge-expired-telemetry": {
         "task": "demo.tasks.purge_expired_telemetry",
         "schedule": 86400.0,
+    },
+    "recover-expired-fault-experiments": {
+        "task": "demo.tasks.recover_expired_fault_experiments",
+        "schedule": 30.0,
     },
 }
 
