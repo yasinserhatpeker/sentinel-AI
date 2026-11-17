@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: ml
 status: active
 created: 2026-11-17 16:52
-updated: 2026-11-17 17:00
+updated: 2026-11-17 23:30
 ---
 
 # Design — Anomaly hardening and real-data model readiness
@@ -53,6 +53,8 @@ Work proceeds in three ordered packages. Package 1 hardens runtime correctness: 
 - `backend/demo/detection/isolation_forest.py` — training correctly requires at least 50 time-ordered feature rows.
 - `backend/demo/detection/sequences.py` — twelve-window journals are contiguous and the offline prototype correctly requires at least 60 journals.
 - Five-minute feature windows require approximately 250 minutes for 50 fresh rows and approximately 355 minutes for 60 twelve-window journals from 71 contiguous feature rows; services can collect concurrently.
+- A lost reporting task left one database row in `queued` state while the Redis broker queue was empty. The stale row made `queue.oldest_message_age` increase indefinitely, and Median/MAD then marked every new reporting window anomalous.
+- Isolation Forest readiness and training excluded rows predicted anomalous by baseline detectors. This incorrectly treated a comparator's prediction as ground truth and allowed a false positive to starve the independent model's training set.
 
 ## Rejected alternatives
 
@@ -63,6 +65,7 @@ Work proceeds in three ordered packages. Package 1 hardens runtime correctness: 
 | Backdate or insert telemetry/features directly | It violates the real-observation requirement and invalidates temporal evaluation. |
 | Generate many requests in one minute to replace elapsed time | It increases volume, not independent completed windows or sequence continuity. |
 | Hide or cap only the UI score | Persisted decisions and API comparisons would remain numerically misleading. |
+| Delete false-positive decisions or rewrite historical telemetry | It would destroy traceability and conceal the source defect instead of correcting queue semantics and training eligibility. |
 
 ## API and data contract
 
@@ -70,6 +73,8 @@ Work proceeds in three ordered packages. Package 1 hardens runtime correctness: 
 - Detector decision: retain technical `raw_score`; expose finite `normalized_score` in `[0, 1]`, threshold/severity and bounded reasons/evidence.
 - Overview: separate `active_fault_count`, `active_faults`, `recovering_faults` and nullable `latest_completed_fault` semantics.
 - Readiness: explicit environment/service/time scope; feature sample/continuity/gap/missingness counts, journal split counts, gate minimums, readiness booleans and stable reason codes.
+- Isolation Forest training eligibility: baseline decisions remain independent evaluation evidence. Only windows labelled `fault_active` or `recovering` by controlled-experiment ground truth are excluded from normal training.
+- Reporting queue age: a zero broker depth means no queued message and therefore zero oldest-message age, even if an orphaned business row remains after local broker loss. Unknown broker state retains the bounded database observation rather than inventing zero.
 - Workload: bounded environment configuration for duration, interval/concurrency, deterministic seed and base service URLs; business endpoints only.
 - Compatibility: existing public telemetry, feature and business contracts remain additive and valid.
 
@@ -89,6 +94,8 @@ Work proceeds in three ordered packages. Package 1 hardens runtime correctness: 
 | 2026-11-17 | Use Redis TTL state for local fault effects. | It provides shared expiry semantics and removes container-local stale state. |
 | 2026-11-17 | User approved the spec and all confirmed gates. | Implementation may proceed through the ordered packages. |
 | 2026-11-17 | Consolidate delivery into three packages without reducing scope. | The requester wants three reviewable packages: reliability, real-data readiness and model completion. |
+| 2026-11-17 | Keep baseline predictions independent from Isolation Forest training eligibility and derive exclusions from controlled ground truth. | Reporting false positives demonstrated that one detector must not define another detector's training truth. |
+| 2026-11-17 | Bind oldest-message age to actual broker depth. | A stale database status is not a queued broker message and must not create an unbounded queue-age signal. |
 
 ## Rules consulted
 

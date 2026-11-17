@@ -1,10 +1,11 @@
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
 from demo.detection.readiness import model_data_readiness
-from demo.models import DetectionDecision, SequenceJournal, TelemetryFeature
+from demo.models import DetectionDecision, FaultExperiment, GroundTruthWindow, SequenceJournal, TelemetryFeature
 
 
 class ModelReadinessTests(TestCase):
@@ -64,7 +65,7 @@ class ModelReadinessTests(TestCase):
         self.assertTrue(report["lstm_ready"])
         self.assertEqual(report["estimated_minutes_remaining_for_lstm"], 0)
 
-    def test_gap_breaks_sequences_and_anomalies_are_not_training_eligible(self) -> None:
+    def test_gap_breaks_sequences_but_baseline_predictions_do_not_define_training_truth(self) -> None:
         features = [self.feature(index) for index in range(50) if index != 25]
         DetectionDecision.objects.create(
             feature=features[0], environment="local", service="orders-api",
@@ -76,8 +77,44 @@ class ModelReadinessTests(TestCase):
         report = self.report()
 
         self.assertEqual(report["feature_sample_count"], 49)
-        self.assertEqual(report["eligible_isolation_forest_sample_count"], 48)
+        self.assertEqual(report["eligible_isolation_forest_sample_count"], 49)
         self.assertEqual(report["sequence_gap_count"], 1)
         self.assertEqual(report["longest_contiguous_window_count"], 25)
         self.assertFalse(report["isolation_forest_ready"])
         self.assertFalse(report["lstm_ready"])
+
+    def test_controlled_fault_and_recovery_windows_are_not_training_eligible(self) -> None:
+        features = [self.feature(index) for index in range(50)]
+        user = get_user_model().objects.create_superuser(username="operator", password="test-password")
+        experiment = FaultExperiment.objects.create(
+            environment="local",
+            service="orders-api",
+            fault_type=FaultExperiment.FaultType.HIGH_LATENCY,
+            status=FaultExperiment.Status.COMPLETED,
+            parameters={"delay_ms": 500},
+            duration_seconds=60,
+            seed=42,
+            created_by=user,
+        )
+        GroundTruthWindow.objects.create(
+            experiment=experiment,
+            environment="local",
+            service="orders-api",
+            window_start=features[0].window_start,
+            label=GroundTruthWindow.Label.FAULT_ACTIVE,
+            fault_severity=1.0,
+        )
+        GroundTruthWindow.objects.create(
+            experiment=experiment,
+            environment="local",
+            service="orders-api",
+            window_start=features[1].window_start,
+            label=GroundTruthWindow.Label.RECOVERING,
+            fault_severity=0.5,
+        )
+
+        report = self.report()
+
+        self.assertEqual(report["feature_sample_count"], 50)
+        self.assertEqual(report["eligible_isolation_forest_sample_count"], 48)
+        self.assertFalse(report["isolation_forest_ready"])

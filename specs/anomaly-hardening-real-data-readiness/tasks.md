@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: ml
 status: active
 created: 2026-11-17 16:52
-updated: 2026-11-17 17:00
+updated: 2026-11-17 23:30
 ---
 
 # Tasks — Anomaly hardening and real-data model readiness
@@ -37,6 +37,8 @@ updated: 2026-11-17 17:00
 - [x] Cover CRUD, dependency workflow, ORM, queue production/consumption and controlled failures.
 - [x] Add scoped readiness calculation for features, continuity, missingness and sequence splits.
 - [x] Add Turkish readiness UI states and reproducible operator documentation.
+- [x] Correct reporting queue-age semantics when broker depth is zero and add regression coverage.
+- [x] Replace baseline-decision training censorship with controlled ground-truth exclusions and re-verify readiness.
 - [ ] Run the workload concurrently across target services for at least the required completed-window duration.
 - [ ] Verify every target service reaches 50 real `features.v2` rows without fabricated timestamps.
 - [ ] Verify the LSTM target reaches at least 60 valid contiguous twelve-window journals.
@@ -61,7 +63,8 @@ updated: 2026-11-17 17:00
 | Isolation Forest lifecycle on real data | `manual:api` | Pending data collection. |
 | Offline LSTM on real sequences | `manual:api` | Explicit super-admin endpoint and Turkish UI result panel implemented; activation is forbidden by contract. Real-data run remains pending the 60-sequence gate. |
 | Full operator regression | `manual:ui` | Overview, service health, anomaly evidence, fault history and model-readiness screens passed manual UI verification. Analysis endpoints returned 200; model gates returned explicit 409 reason codes; real fault start→recovering→completed left zero unfinished faults. Model-success rows remain pending real-data gates. |
-| Final automated regression | `auto:check` | Passed: 63 Django tests, 6 shared fault tests, 4 workload tests, 4 frontend tests, production frontend build, Compose config and `git diff --check`, 2026-11-17. |
+| Final automated regression | `auto:check` | Passed: 65 Django tests, 3 reporting-service tests, 6 shared fault tests, 4 workload tests, 4 frontend tests, production frontend build, Compose config and `git diff --check`, 2026-11-17. |
+| Reporting queue-age false-positive repair | `auto:test` + `manual:data` | Passed: broker depth `0` now yields queue age `0.0`; orphaned job `2819` was requeued through the real Celery worker and completed; latest live queue-age events are bounded at `0.0`/`0.038226` seconds; all five services report 51–57 eligible real Isolation Forest samples. Regression passed: 65 Django, 3 reporting-service, 6 shared-fault, 4 workload and 4 frontend tests plus production build, Compose config and whitespace check, 2026-11-17. |
 
 - [x] Record every automatic command result.
 - [ ] Confirm the commit trailer uses `Spec: anomaly-hardening-real-data-readiness`.

@@ -22,7 +22,11 @@ def queue_depth() -> int | None:
         return None
 
 
-def oldest_queued_age_seconds() -> float:
+def oldest_queued_age_seconds(*, depth: int | None = None) -> float:
+    if depth is None:
+        depth = queue_depth()
+    if depth == 0:
+        return 0.0
     oldest = ReportJob.objects.filter(status="queued").order_by("created_at").first()
     if oldest is None:
         return 0.0
@@ -45,8 +49,8 @@ def complete_report(report_id: int) -> None:
 
             time.sleep(float(fault["parameters"]["delay_ms"]) / 1000)
         ReportJob.objects.filter(pk=report_id).update(status="completed", completed_at=timezone.now())
-        measurements = [("queue.dequeue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(), "seconds")]
         depth = queue_depth()
+        measurements = [("queue.dequeue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(depth=depth), "seconds")]
         if depth is not None:
             measurements.append(("queue.depth", float(depth), "messages"))
         publish_queue_measurements(measurements, "completed")
