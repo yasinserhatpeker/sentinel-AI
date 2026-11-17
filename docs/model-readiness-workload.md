@@ -140,4 +140,3 @@ docker compose run --rm --build api python manage.py test demo.tests.test_model_
 docker compose run --rm frontend npm test -- --run
 docker compose run --rm frontend npm run build
 ```
-
