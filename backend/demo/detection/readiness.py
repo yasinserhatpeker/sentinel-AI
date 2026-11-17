@@ -7,6 +7,8 @@ from datetime import timedelta
 from demo.models import SequenceJournal, TelemetryFeature
 from demo.telemetry_ingestion import BASE_FEATURE_FIELDS, FEATURE_SCHEMA_V2, FEATURE_V2_NAMES, FEATURE_WINDOW_MINUTES
 
+from .training_data import normal_training_features
+
 
 ISOLATION_FOREST_MINIMUM_SAMPLES = 50
 LSTM_SEQUENCE_LENGTH = 12
@@ -47,12 +49,12 @@ def model_data_readiness(*, environment: str, service: str, start, end) -> dict:
     )
     gap_count = max(0, expected_between_observations - len(windows))
 
-    eligible_training_count = (
-        TelemetryFeature.objects.filter(pk__in=[row.pk for row in rows])
-        .exclude(detection_decisions__is_anomaly=True)
-        .distinct()
-        .count()
-    )
+    eligible_training_count = normal_training_features(
+        environment=environment,
+        service=service,
+        start=start,
+        end=end,
+    ).count()
     total_values = len(rows) * (len(BASE_FEATURE_FIELDS) + len(FEATURE_V2_NAMES))
     missing_values = 0
     for row in rows:

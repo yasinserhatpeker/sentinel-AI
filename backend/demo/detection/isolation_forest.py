@@ -20,6 +20,7 @@ from demo.telemetry_ingestion import BASE_FEATURE_FIELDS, FEATURE_SCHEMA_V2, FEA
 
 from .base import DetectionResult, DetectorMetadata, normalize_signed_score
 from .service import persist_detection
+from .training_data import normal_training_features
 
 
 ISOLATION_FOREST_VERSION = "1.0.0"
@@ -52,7 +53,7 @@ def train_isolation_forest(
     contamination: float = 0.05,
     random_state: int = 42,
 ) -> DetectorModel:
-    """Train from time-ordered, non-anomalous completed ``features.v2`` rows."""
+    """Train from time-ordered rows outside labelled fault/recovery windows."""
 
     if environment != "local":
         raise ValueError("model_training_environment_must_be_local")
@@ -60,18 +61,12 @@ def train_isolation_forest(
         raise ValueError("model_training_range_invalid")
     if not 0 < contamination <= 0.5:
         raise ValueError("model_contamination_invalid")
-    rows = list(
-        TelemetryFeature.objects.filter(
-            schema_version=FEATURE_SCHEMA_V2,
-            environment=environment,
-            service=service,
-            window_start__gte=start,
-            window_start__lt=end,
-        )
-        .exclude(detection_decisions__is_anomaly=True)
-        .distinct()
-        .order_by("window_start", "id")
-    )
+    rows = list(normal_training_features(
+        environment=environment,
+        service=service,
+        start=start,
+        end=end,
+    ))
     if len(rows) < minimum_samples:
         raise ValueError("model_training_insufficient_samples")
 

@@ -2,6 +2,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from demo.detection.isolation_forest import (
@@ -10,7 +11,7 @@ from demo.detection.isolation_forest import (
     score_with_active_model,
     train_isolation_forest,
 )
-from demo.models import DetectionDecision, DetectorModel, TelemetryFeature
+from demo.models import DetectionDecision, DetectorModel, FaultExperiment, GroundTruthWindow, TelemetryFeature
 from demo.telemetry_ingestion import FEATURE_V2_NAMES
 
 
@@ -91,6 +92,36 @@ class IsolationForestLifecycleTests(TestCase):
             self.assertEqual(first.model_version, model.model_version)
             self.assertEqual(first.feature_id, outlier.pk)
             self.assertEqual(DetectionDecision.objects.filter(model_version=model.model_version).count(), 1)
+
+    def test_training_uses_ground_truth_instead_of_baseline_predictions(self) -> None:
+        features = [self.feature(index, latency=100.0 + (index % 7)) for index in range(51)]
+        DetectionDecision.objects.create(
+            feature=features[0], environment="local", service="orders-api",
+            detector_type="median_mad", detector_version="1.1.0",
+            configuration_version="median-mad.default.v2", score=100.0,
+            normalized_score=1.0, threshold=3.5, is_anomaly=True,
+            severity=DetectionDecision.Severity.CRITICAL, reasons=["median_mad.false_positive"],
+        )
+        user = get_user_model().objects.create_superuser(username="operator", password="test-password")
+        experiment = FaultExperiment.objects.create(
+            environment="local", service="orders-api",
+            fault_type=FaultExperiment.FaultType.HIGH_LATENCY,
+            status=FaultExperiment.Status.COMPLETED, parameters={"delay_ms": 500},
+            duration_seconds=60, seed=42, created_by=user,
+        )
+        GroundTruthWindow.objects.create(
+            experiment=experiment, environment="local", service="orders-api",
+            window_start=features[-1].window_start,
+            label=GroundTruthWindow.Label.FAULT_ACTIVE, fault_severity=1.0,
+        )
+
+        with tempfile.TemporaryDirectory() as directory, override_settings(MODEL_ARTIFACT_DIR=directory):
+            model = train_isolation_forest(
+                environment="local", service="orders-api", start=self.start,
+                end=self.start + timedelta(hours=5), minimum_samples=50,
+            )
+
+        self.assertEqual(model.sample_count, 50)
 
     def test_non_local_training_is_rejected_before_artifact_creation(self) -> None:
         with tempfile.TemporaryDirectory() as directory, override_settings(MODEL_ARTIFACT_DIR=directory):
