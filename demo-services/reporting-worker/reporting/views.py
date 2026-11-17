@@ -19,8 +19,8 @@ class ReportJobListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         report = serializer.save()
         complete_report.delay(report.pk)
-        measurements = [("queue.enqueue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(), "seconds")]
         depth = queue_depth()
+        measurements = [("queue.enqueue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(depth=depth), "seconds")]
         if depth is not None:
             measurements.append(("queue.depth", float(depth), "messages"))
         publish_queue_measurements(measurements, "queued")
@@ -41,8 +41,8 @@ class WorkflowReportView(APIView):
         )
         if created:
             complete_report.delay(report.pk)
-            measurements = [("queue.enqueue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(), "seconds")]
             depth = queue_depth()
+            measurements = [("queue.enqueue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(depth=depth), "seconds")]
             if depth is not None:
                 measurements.append(("queue.depth", float(depth), "messages"))
             publish_queue_measurements(measurements, "queued")
