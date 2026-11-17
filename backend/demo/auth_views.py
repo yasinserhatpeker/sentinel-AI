@@ -40,7 +40,7 @@ def _assert_same_site(request):
     if request.headers.get("Sec-Fetch-Site") == "cross-site":
         raise PermissionDenied("authentication_required")
     origin = request.headers.get("Origin")
-    if origin and origin not in {"http://localhost:5174"}:
+    if origin and origin not in {"http://localhost:5174", "http://127.0.0.1:5174"}:
         raise PermissionDenied("authentication_required")
 
 

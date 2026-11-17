@@ -71,6 +71,18 @@ class SuperAdminLoginTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_loopback_dashboard_origin_is_accepted(self):
+        response = self.client.post(
+            "/api/auth/login/",
+            {"identifier": self.admin.email, "password": self.password},
+            format="json",
+            HTTP_X_CSRFTOKEN=self.csrf(),
+            HTTP_ORIGIN="http://127.0.0.1:5174",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+
     def test_username_is_accepted_as_an_alternative_to_email(self):
         response = self.login(identifier=self.admin.username)
 

@@ -92,7 +92,9 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True, "BLACKLIST_AFTER_ROTATION": True,
     "SIGNING_KEY": os.environ["JWT_SIGNING_KEY"], "ISSUER": "sentinelai-local", "AUDIENCE": "sentinelai-local",
 }
-CSRF_TRUSTED_ORIGINS = ["http://localhost:5174"]
+# Docker Desktop exposes the local dashboard on either hostname.  Treat them
+# identically so a user opening 127.0.0.1 does not fail CSRF origin checking.
+CSRF_TRUSTED_ORIGINS = ["http://localhost:5174", "http://127.0.0.1:5174"]
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = False
 SESSION_COOKIE_SECURE = not DEBUG
