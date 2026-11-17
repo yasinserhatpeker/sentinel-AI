@@ -5,11 +5,13 @@ import uuid
 import os
 import resource
 import re
+import hashlib
+import random
 
 from django.db import connection
 from django.http import JsonResponse
 
-from .fault import active_fault
+from .fault import active_fault, clear_fault_on_startup
 from .telemetry import publish_measurements, request_measurements
 
 
@@ -18,24 +20,38 @@ class TelemetryMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
+        clear_fault_on_startup()
 
     def __call__(self, request):
         # Compose probes keep containers observable but must not distort the
         # business-traffic telemetry displayed in SentinelAI.
-        if request.path == "/health/":
+        if request.path in ("/health/", "/_internal/fault-control/"):
             return self.get_response(request)
         started = time.perf_counter()
         cpu_started = time.process_time()
         query_start = len(connection.queries)
         fault = active_fault()
         if fault and fault["scenario"] == "latency":
-            time.sleep(1.5)
-        if fault and fault["scenario"] == "runtime-pressure":
-            until = time.perf_counter() + 0.4
-            while time.perf_counter() < until:
-                pass
+            time.sleep(float(fault["parameters"]["delay_ms"]) / 1000)
         try:
-            response = JsonResponse({"error": "injected_failure"}, status=503) if fault and fault["scenario"] == "errors" and request.path != "/health/" else self.get_response(request)
+            should_error = False
+            if fault and fault["scenario"] == "errors" and request.path != "/health/":
+                bucket = int(time.time())
+                digest = hashlib.sha256(f"{fault['seed']}:{request.path}:{bucket}".encode()).hexdigest()
+                should_error = random.Random(int(digest[:16], 16)).random() < float(fault["parameters"]["error_probability"])
+            if should_error:
+                response = JsonResponse({"error": "injected_failure"}, status=503)
+            elif fault and fault["scenario"] == "database-slowdown":
+                delay = float(fault["parameters"]["delay_ms"]) / 1000
+
+                def delayed_execute(execute, sql, params, many, context):
+                    time.sleep(delay)
+                    return execute(sql, params, many, context)
+
+                with connection.execute_wrapper(delayed_execute):
+                    response = self.get_response(request)
+            else:
+                response = self.get_response(request)
         except Exception:
             self._publish(request, 500, started, cpu_started, query_start)
             raise

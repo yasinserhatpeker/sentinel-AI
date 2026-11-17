@@ -13,4 +13,6 @@ opentelemetry-instrumentation-django>=0.60b0,<0.61
 opentelemetry-instrumentation-psycopg>=0.60b0,<0.61
 opentelemetry-instrumentation-redis>=0.60b0,<0.61
 opentelemetry-instrumentation-system-metrics>=0.60b0,<0.61
+scikit-learn>=1.7,<1.8
+joblib>=1.5,<1.6
 

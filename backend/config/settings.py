@@ -46,6 +46,7 @@ DATABASES = {
 }
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+MODEL_ARTIFACT_DIR = Path(os.environ.get("MODEL_ARTIFACT_DIR", BASE_DIR / ".model-artifacts"))
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -72,6 +73,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "demo.tasks.purge_expired_telemetry",
         "schedule": 86400.0,
     },
+    "recover-expired-fault-experiments": {
+        "task": "demo.tasks.recover_expired_fault_experiments",
+        "schedule": 30.0,
+    },
 }
 
 REST_FRAMEWORK = {
@@ -92,7 +97,9 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True, "BLACKLIST_AFTER_ROTATION": True,
     "SIGNING_KEY": os.environ["JWT_SIGNING_KEY"], "ISSUER": "sentinelai-local", "AUDIENCE": "sentinelai-local",
 }
-CSRF_TRUSTED_ORIGINS = ["http://localhost:5174"]
+# Docker Desktop exposes the local dashboard on either hostname.  Treat them
+# identically so a user opening 127.0.0.1 does not fail CSRF origin checking.
+CSRF_TRUSTED_ORIGINS = ["http://localhost:5174", "http://127.0.0.1:5174"]
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = False
 SESSION_COOKIE_SECURE = not DEBUG

@@ -1,10 +1,10 @@
 # SentinelAI
 
-SentinelAI, yerel Docker ortamında çalışan bir observability prototipidir. Beş gerçek demo servisinin ürettiği HTTP, database ve queue aktivitesinden telemetry toplar; service ve system health bilgisini gösterir; ilerideki Isolation Forest anomaly detection aşaması için beş dakikalık `features.v1` vektörleri hazırlar.
+SentinelAI, yerel Docker ortamında çalışan bir observability ve anomaly-detection prototipidir. Beş gerçek demo servisinin ürettiği HTTP, database ve queue aktivitesinden telemetry toplar; service ve system health bilgisini gösterir; `features.v2`, açıklanabilir baseline detector'lar ve Isolation Forest ile kontrollü fault deneylerini karşılaştırır.
 
 Arayüz Türkçedir. `Service`, `HTTP`, `latency`, `queue`, `telemetry`, `p95` ve `error rate` gibi teknik terimler İngilizce kalır.
 
-> Bu repository yerel development/demo ortamı içindir. Production deployment içermez; henüz anomaly model eğitimi veya LLM API çağrısı yapmaz.
+> Bu repository yerel development/demo ortamı içindir. Production deployment veya external LLM API çağrısı içermez. Fault injection yalnızca allowlisted local demo service'lerde çalışır.
 
 ## İçerik
 
@@ -13,7 +13,7 @@ Vue 3 dashboard
         │
 Django REST API + JWT authentication
         │
-PostgreSQL ← raw event / minute aggregate / features.v1
+PostgreSQL ← raw event / minute aggregate / features.v1 + features.v2
         │
 Redis + Celery worker + Celery Beat
         │
@@ -25,7 +25,9 @@ orders → payments → inventory → notifications → reporting
 - Gerçek request, ORM ve queue telemetry'si; dashboard değerleri seed edilmiş veya hard-coded değildir.
 - Service dashboard ve authentication gerektiren System Overview ekranı.
 - Raw event retention, minute aggregate ve idempotent beş dakikalık feature backfill.
-- İlerideki anomaly evaluation için yalnızca local ortamda çalışan fault injection yardımcıları.
+- Static threshold, Median/MAD ve versioned Isolation Forest lifecycle.
+- Local-only high latency, error burst, database slowdown ve queue backlog deneyleri.
+- Ground truth, Precision/Recall/F1/FPR/detection-delay evaluation ve LSTM-ready sequence journal.
 
 ## Gereksinimler
 
@@ -116,7 +118,7 @@ Kullanılabilir demo servisler:
 | `notifications-api` | Notification oluşturur ve iletir. |
 | `reporting-worker` | Report job'larını queue'ya alır ve tamamlar. |
 
-**Sistem özeti** paneli healthy/degraded service sayısını, en yavaş `p95 latency` değerini, en yoğun `queue`yu ve tanımlı dependency chain'i gösterir. `Incident`, `anomaly score` ve geçmiş `fault context` alanları, ilgili milestone'lar henüz tamamlanmadığı için bilinçli olarak unavailable gösterilir.
+**Sistem özeti** paneli healthy/degraded service sayısını, en yavaş `p95 latency` değerini, en yüksek `anomaly score`u, aktif `fault` sayısını ve tanımlı dependency chain'i gösterir. Üst navigasyon üzerinden scoped anomaly evidence, controlled fault history ve detector/model evaluation ekranlarına geçilir.
 
 ### Dashboard metrikleri ne anlama gelir?
 
@@ -129,17 +131,21 @@ Kullanılabilir demo servisler:
 
 Bir metrik henüz gözlemlenmemişse arayüz sıfır değer uydurmak yerine eksik/partial data gösterir.
 
-## Telemetry ve ML feature pipeline
+## Telemetry, feature ve anomaly pipeline
 
 ```text
 Raw telemetry event (30 gün)
         ↓
 1-minute aggregate (local reset'e kadar saklanır)
         ↓
-5-minute features.v1 vector (local reset'e kadar saklanır)
+5-minute features.v1 + features.v2 vector (local reset'e kadar saklanır)
+        ↓
+Static threshold / Median-MAD / active Isolation Forest
+        ↓
+Detection decision + fault ground truth + evaluation
 ```
 
-Celery Beat tamamlanan dakikaları her dakika aggregate eder, her beş dakikada feature materialization çalıştırır ve yalnızca 30 günden eski raw event'leri siler. `features.v1`; request count, error rate, p95 latency, CPU/memory, database latency ve queue metric'leri gibi sabit aggregate-only column'lar içerir. Eksik sinyaller sıfır yerine `NULL` kalır.
+Celery Beat tamamlanan dakikaları her dakika aggregate eder, her beş dakikada feature materialization/scoring çalıştırır ve yalnızca 30 günden eski raw event'leri siler. `features.v1` geriye uyumlu base alanları korur. `features.v2` bunlara cyclic time, 5/10/15 dakikalık lag, 15/30/60 dakikalık rolling ve service-dependency context ekler. Eksik sinyaller sıfır yerine `NULL` kalır.
 
 Var olan yerel aggregate geçmişini hemen materialize etmek için:
 
@@ -153,7 +159,19 @@ print(backfill_feature_windows(first, last) if first and last else 0)
 '
 ```
 
-Bu komutu tekrar çalıştırmak güvenlidir: feature row'ları upsert edildiğinden duplicate oluşmaz. Ayrıntılı sözleşme için [docs/ml-feature-pipeline.md](docs/ml-feature-pipeline.md) dosyasına bakın.
+Bu komutu tekrar çalıştırmak güvenlidir: feature row'ları upsert edildiğinden duplicate oluşmaz. Ayrıntılı anomaly/fault/model akışı ve gerçek smoke sonuçları için [docs/anomaly-detection-fault-experiments.md](docs/anomaly-detection-fault-experiments.md) dosyasına bakın.
+
+Isolation Forest ve LSTM gate'leri için gerçek business trafiğinin nasıl üretildiği,
+bounded workload profile'ının nasıl çalıştırıldığı ve readiness alanlarının nasıl
+yorumlandığı [docs/model-readiness-workload.md](docs/model-readiness-workload.md)
+dosyasında açıklanır. Bu akış telemetry veya timestamp uydurmaz; gerekli beş dakikalık
+window'ların gerçek zamanda tamamlanmasını bekler.
+
+Controlled fault smoke paketini çalıştırmak için:
+
+```bash
+docker compose exec api python manage.py verify_fault_experiments --duration 15 --queue-jobs 30
+```
 
 ## Development komutları
 
@@ -171,7 +189,10 @@ Vue frontend local development için bind-mounted çalışır; Vite değişiklik
 
 ```bash
 docker compose run --rm --build api python manage.py test demo.tests
-cd frontend && npm run build
+PYTHONPATH=demo-services python3 -m unittest common.test_fault
+docker compose run --rm frontend npm test -- --run
+docker compose run --rm frontend npm run build
+docker compose config --quiet
 ```
 
 ### Logları inceleyin
@@ -218,9 +239,9 @@ Reset sonrasında `docker compose up -d --build` komutunu yeniden çalıştırı
 
 ## Mevcut ve sonraki kapsam
 
-Tamamlananlar: gerçek service workflow, service dashboard, System Overview, raw retention ve `features.v1` materialization.
+Tamamlananlar: gerçek service workflow, service dashboard, System Overview, raw retention, `features.v1`/`features.v2`, baseline detector'lar, Isolation Forest lifecycle, dört controlled fault, ground truth/evaluation, LSTM-ready journal ve operator UI.
 
-Sonraki adımlar: Isolation Forest training/scoring, anomaly kayıtları, controlled-fault ground truth, incident correlation, external benchmark dataset'leri ve redacted external LLM analysis API.
+Sonraki adımlar: uzun süreli normal/fault dataset üretimi, external benchmark dataset kıyası, incident correlation ve yalnızca redacted aggregate context kullanan external LLM analysis API.
 
 ## Contribution workflow
 

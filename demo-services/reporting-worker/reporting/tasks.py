@@ -7,8 +7,10 @@ from django.conf import settings
 from django.utils import timezone
 
 from .models import ReportJob
-from common.fault import active_fault
+from common.fault import active_fault, clear_fault_on_startup
 from common.telemetry import publish_measurements
+
+clear_fault_on_startup()
 
 
 def queue_depth() -> int | None:
@@ -41,7 +43,7 @@ def complete_report(report_id: int) -> None:
         if fault and fault["scenario"] == "queue-backlog":
             import time
 
-            time.sleep(1.5)
+            time.sleep(float(fault["parameters"]["delay_ms"]) / 1000)
         ReportJob.objects.filter(pk=report_id).update(status="completed", completed_at=timezone.now())
         measurements = [("queue.dequeue_rate", 1.0, "tasks"), ("queue.oldest_message_age", oldest_queued_age_seconds(), "seconds")]
         depth = queue_depth()
