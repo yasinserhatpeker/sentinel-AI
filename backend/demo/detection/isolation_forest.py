@@ -17,23 +17,42 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 
 from demo.models import DetectionDecision, DetectorModel, TelemetryFeature
-from demo.telemetry_ingestion import BASE_FEATURE_FIELDS, FEATURE_SCHEMA_V2, FEATURE_V2_NAMES
+from demo.telemetry_ingestion import BASE_FEATURE_FIELDS, FEATURE_SCHEMA_V2
 
 from .base import DetectionResult, DetectorMetadata, normalize_signed_score
 from .service import persist_detection
 from .training_data import normal_training_features
 
 
-ISOLATION_FOREST_VERSION = "1.0.0"
-MODEL_FEATURE_NAMES = (*BASE_FEATURE_FIELDS, *FEATURE_V2_NAMES)
+ISOLATION_FOREST_VERSION = "1.1.0"
+RELATIVE_FEATURE_PREFIX = "relative_to_15m."
+RELATIVE_FEATURE_NAMES = tuple(f"{RELATIVE_FEATURE_PREFIX}{name}" for name in BASE_FEATURE_FIELDS)
+CONTEXT_FEATURE_NAMES = (
+    "time.hour_sin",
+    "time.hour_cos",
+    "time.weekday_sin",
+    "time.weekday_cos",
+    "dependency.upstream.latency_delta_ms",
+    "dependency.downstream.latency_delta_ms",
+    "dependency.upstream.error_rate_delta",
+    "dependency.downstream.error_rate_delta",
+)
+# Keep the model dimensionality proportional to the small local training set.
+# Current values preserve absolute service behaviour, relative values expose
+# sudden deviations, and a small context set retains time/dependency signals.
+MODEL_FEATURE_NAMES = (*BASE_FEATURE_FIELDS, *RELATIVE_FEATURE_NAMES, *CONTEXT_FEATURE_NAMES)
 
 
-def calculate_training_diagnostics(pipeline: Pipeline, vectors: list[list[float | None]]) -> dict[str, float | int]:
+def calculate_training_diagnostics(
+    pipeline: Pipeline,
+    vectors: list[list[float | None]],
+    *,
+    score_threshold: float = 0.0,
+) -> dict[str, float | int]:
     """Return finite unsupervised diagnostics without claiming labelled accuracy."""
 
     raw_scores = -pipeline.decision_function(vectors)
-    predictions = pipeline.predict(vectors)
-    predicted_anomaly_count = int(np.count_nonzero(predictions == -1))
+    predicted_anomaly_count = int(np.count_nonzero(raw_scores >= score_threshold))
     sample_count = len(vectors)
     return {
         "predicted_anomaly_count": predicted_anomaly_count,
@@ -51,6 +70,15 @@ def feature_vector(feature: TelemetryFeature, names: tuple[str, ...] = MODEL_FEA
     for name in names:
         if name in BASE_FEATURE_FIELDS:
             values.append(getattr(feature, name))
+        elif name.startswith(RELATIVE_FEATURE_PREFIX):
+            field = name.removeprefix(RELATIVE_FEATURE_PREFIX)
+            current = getattr(feature, field)
+            baseline = feature.feature_values.get(f"rolling_15m.{field}.mean")
+            values.append(
+                None
+                if current is None or baseline is None
+                else (current - baseline) / (abs(baseline) + 1e-6)
+            )
         else:
             values.append(feature.feature_values.get(name))
     return values
@@ -105,7 +133,13 @@ def train_isolation_forest(
     )
     vectors = [feature_vector(row) for row in rows]
     pipeline.fit(vectors)
-    training_diagnostics = calculate_training_diagnostics(pipeline, vectors)
+    training_scores = -pipeline.decision_function(vectors)
+    score_threshold = float(np.percentile(training_scores, (1.0 - contamination) * 100.0))
+    training_diagnostics = calculate_training_diagnostics(
+        pipeline,
+        vectors,
+        score_threshold=score_threshold,
+    )
 
     model_version = f"if-{uuid.uuid4().hex}"
     artifact_name = f"{model_version}.joblib"
@@ -118,6 +152,7 @@ def train_isolation_forest(
         "model_version": model_version,
         "feature_schema_version": FEATURE_SCHEMA_V2,
         "feature_names": list(MODEL_FEATURE_NAMES),
+        "score_threshold": score_threshold,
         "pipeline": pipeline,
     }
     joblib.dump(payload, temporary_path)
@@ -135,6 +170,7 @@ def train_isolation_forest(
                 "contamination": contamination,
                 "random_state": random_state,
                 "n_estimators": 200,
+                "score_threshold": score_threshold,
                 "training_diagnostics": training_diagnostics,
             },
             feature_names=list(MODEL_FEATURE_NAMES),
@@ -203,16 +239,17 @@ class IsolationForestDetector:
         del history
         pipeline = self.payload["pipeline"]
         vector = [feature_vector(feature, tuple(self.model.feature_names))]
-        prediction = int(pipeline.predict(vector)[0])
         score = -float(pipeline.decision_function(vector)[0])
-        is_anomaly = prediction == -1
+        threshold = float(self.payload.get("score_threshold", 0.0))
+        score_margin = score - threshold
+        is_anomaly = score_margin >= 0.0
         severity = DetectionDecision.Severity.NORMAL
         if is_anomaly:
-            severity = DetectionDecision.Severity.CRITICAL if score >= 0.15 else DetectionDecision.Severity.WARNING
+            severity = DetectionDecision.Severity.CRITICAL if score_margin >= 0.15 else DetectionDecision.Severity.WARNING
         return DetectionResult(
             score=score,
-            normalized_score=normalize_signed_score(score),
-            threshold=0.0,
+            normalized_score=normalize_signed_score(score_margin),
+            threshold=threshold,
             is_anomaly=is_anomaly,
             severity=severity,
             reasons=("isolation_forest.outlier",) if is_anomaly else (),

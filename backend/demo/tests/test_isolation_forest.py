@@ -8,6 +8,7 @@ from django.test import TestCase, override_settings
 from demo.detection.isolation_forest import (
     MODEL_FEATURE_NAMES,
     activate_model,
+    feature_vector,
     score_with_active_model,
     train_isolation_forest,
 )
@@ -18,11 +19,18 @@ from demo.telemetry_ingestion import FEATURE_V2_NAMES
 class IsolationForestLifecycleTests(TestCase):
     start = datetime(2026, 11, 1, tzinfo=UTC)
 
-    def feature(self, index: int, *, latency: float, error_rate: float = 0.01) -> TelemetryFeature:
+    def feature(
+        self,
+        index: int,
+        *,
+        latency: float,
+        error_rate: float = 0.01,
+        rolling_latency: float | None = None,
+    ) -> TelemetryFeature:
         context = {name: None for name in FEATURE_V2_NAMES}
         context["time.hour_sin"] = 0.0
         context["time.hour_cos"] = 1.0
-        context["rolling_15m.latency_p95_ms.mean"] = latency
+        context["rolling_15m.latency_p95_ms.mean"] = latency if rolling_latency is None else rolling_latency
         return TelemetryFeature.objects.create(
             schema_version="features.v2",
             window_start=self.start + timedelta(minutes=index * 5),
@@ -98,6 +106,28 @@ class IsolationForestLifecycleTests(TestCase):
             self.assertEqual(first.model_version, model.model_version)
             self.assertEqual(first.feature_id, outlier.pk)
             self.assertEqual(DetectionDecision.objects.filter(model_version=model.model_version).count(), 1)
+
+    def test_relative_features_expose_realistic_single_metric_latency_spike(self) -> None:
+        for index in range(60):
+            self.feature(index, latency=100.0 + (index % 7), error_rate=0.01)
+
+        with tempfile.TemporaryDirectory() as directory, override_settings(MODEL_ARTIFACT_DIR=directory):
+            model = train_isolation_forest(
+                environment="local",
+                service="orders-api",
+                start=self.start,
+                end=self.start + timedelta(hours=5),
+                minimum_samples=50,
+                contamination=0.05,
+                random_state=42,
+            )
+            activate_model(model)
+            latency_spike = self.feature(60, latency=800.0, error_rate=0.01, rolling_latency=100.0)
+            vector = feature_vector(latency_spike)
+
+        relative_latency_index = MODEL_FEATURE_NAMES.index("relative_to_15m.latency_p95_ms")
+        self.assertAlmostEqual(vector[relative_latency_index], 7.0, places=6)
+        self.assertLess(len(model.feature_names), model.sample_count)
 
     def test_training_uses_ground_truth_instead_of_baseline_predictions(self) -> None:
         features = [self.feature(index, latency=100.0 + (index % 7)) for index in range(51)]

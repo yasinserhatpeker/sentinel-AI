@@ -132,15 +132,24 @@ def materialize_ground_truth(experiment: FaultExperiment) -> int:
     if experiment.started_at is None or experiment.recovery_until is None:
         return 0
     active_until = experiment.stopped_at or experiment.expires_at or experiment.started_at
+    active_duration_seconds = max(0.0, (active_until - experiment.started_at).total_seconds())
+    minimum_active_overlap_seconds = min(30.0, active_duration_seconds / 2.0)
     start = feature_window_start(experiment.started_at - timedelta(minutes=10))
     end = feature_window_start(experiment.recovery_until + timedelta(minutes=5))
     count = 0
     cursor = start
     while cursor <= end:
-        if cursor < feature_window_start(experiment.started_at):
-            label = GroundTruthWindow.Label.NORMAL
-        elif cursor <= feature_window_start(active_until):
+        window_end = cursor + timedelta(minutes=5)
+        active_overlap_seconds = max(
+            0.0,
+            (min(window_end, active_until) - max(cursor, experiment.started_at)).total_seconds(),
+        )
+        if active_overlap_seconds > 0 and active_overlap_seconds >= minimum_active_overlap_seconds:
             label = GroundTruthWindow.Label.FAULT_ACTIVE
+        elif cursor < experiment.started_at:
+            # A feature window that contains only a few trailing fault seconds
+            # is predominantly normal and should not count as a model miss.
+            label = GroundTruthWindow.Label.NORMAL
         else:
             label = GroundTruthWindow.Label.RECOVERING
         GroundTruthWindow.objects.update_or_create(
