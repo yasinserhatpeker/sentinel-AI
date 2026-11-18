@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from demo.faults import RECOVERY_SECONDS, recover_expired_experiments, repeat_experiment, start_experiment, stop_experiment
+from demo.faults import RECOVERY_SECONDS, materialize_ground_truth, recover_expired_experiments, repeat_experiment, start_experiment, stop_experiment
 from demo.models import FaultExperiment, GroundTruthWindow
 
 
@@ -60,6 +60,30 @@ class FaultExperimentTests(TestCase):
         labels = set(stopped.ground_truth_windows.values_list("label", flat=True))
         self.assertEqual(labels, {GroundTruthWindow.Label.NORMAL, GroundTruthWindow.Label.FAULT_ACTIVE, GroundTruthWindow.Label.RECOVERING})
         self.assertEqual(stopped.ground_truth_windows.count(), GroundTruthWindow.objects.filter(experiment=stopped).count())
+
+    def test_ground_truth_ignores_negligible_fault_overlap_at_window_boundary(self) -> None:
+        window_start = timezone.now().replace(minute=50, second=0, microsecond=0)
+        experiment = FaultExperiment.objects.create(
+            environment="local",
+            service="inventory-api",
+            fault_type=FaultExperiment.FaultType.HIGH_LATENCY,
+            status=FaultExperiment.Status.COMPLETED,
+            parameters={"delay_ms": 750.0},
+            duration_seconds=60,
+            seed=42,
+            created_by=self.admin,
+            started_at=window_start + timedelta(minutes=4, seconds=58),
+            expires_at=window_start + timedelta(minutes=5, seconds=58),
+            stopped_at=window_start + timedelta(minutes=6, seconds=11),
+            recovery_until=window_start + timedelta(minutes=8, seconds=11),
+        )
+
+        materialize_ground_truth(experiment)
+
+        labels = dict(experiment.ground_truth_windows.values_list("window_start", "label"))
+        self.assertEqual(labels[window_start], GroundTruthWindow.Label.NORMAL)
+        self.assertEqual(labels[window_start + timedelta(minutes=5)], GroundTruthWindow.Label.FAULT_ACTIVE)
+        self.assertEqual(labels[window_start + timedelta(minutes=10)], GroundTruthWindow.Label.RECOVERING)
 
     @patch("demo.faults._send_control", return_value={"status": "ok"})
     def test_watchdog_recovers_expired_fault_and_completes_recovery(self, _send_control) -> None:

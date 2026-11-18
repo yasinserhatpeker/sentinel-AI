@@ -34,6 +34,14 @@ function percentage(value: number) {
   return `${(value * 100).toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
+function precisionLabel(summary: EvaluationSummary) {
+  return summary.truePositive + summary.falsePositive === 0 ? "Hesaplanamadı" : percentage(summary.precision);
+}
+
+function evaluationPrecisionLabel(item: DetectorEvaluation) {
+  return item.confusion.true_positive + item.confusion.false_positive === 0 ? "Hesaplanamadı" : percentage(item.precision);
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
 }
@@ -74,25 +82,23 @@ const sortedModels = computed(() => [...props.models].sort((left, right) => {
 }));
 const activeModel = computed(() => sortedModels.value.find((model) => model.status === "active") ?? null);
 const isolationForestEvaluations = computed(() => {
-  const all = props.evaluations.filter((item) => item.detector_type === "isolation_forest");
-  if (!activeModel.value) return all;
-  const active = all.filter((item) => item.model_version === activeModel.value?.model_version);
-  return active.length ? active : all;
+  if (!activeModel.value) return [];
+  return props.evaluations.filter((item) => (
+    item.detector_type === "isolation_forest"
+    && item.model_version === activeModel.value?.model_version
+  ));
 });
 const isolationForestSummary = computed(() => summarize(isolationForestEvaluations.value));
+const activeExperimentIds = computed(() => new Set(
+  isolationForestEvaluations.value.map((item) => item.experiment_id),
+));
 const baselineGroups = computed(() => ["static_threshold", "median_mad"].map((type) => {
-  const items = props.evaluations.filter((item) => item.detector_type === type);
+  const items = props.evaluations.filter((item) => (
+    item.detector_type === type
+    && activeExperimentIds.value.has(item.experiment_id)
+  ));
   return { type, items, summary: summarize(items) };
 }).filter((group) => group.summary));
-const lstmProgress = computed(() => {
-  if (!props.readiness) return 0;
-  return Math.min(100, (props.readiness.candidate_sequence_count / props.readiness.lstm_minimum_sequences) * 100);
-});
-const isolationProgress = computed(() => {
-  if (!props.readiness) return 0;
-  return Math.min(100, (props.readiness.eligible_isolation_forest_sample_count / props.readiness.isolation_forest_minimum_samples) * 100);
-});
-
 function modelName(model: DetectorModel, index: number) {
   if (model.status === "active") return "Aktif model";
   if (model.status === "trained") return "Aktivasyon bekleyen model";
@@ -109,26 +115,14 @@ function modelStatus(model: DetectorModel) {
     <section class="model-panel readiness-panel">
       <div class="section-title">
         <div>
-          <h2>Model hazırlığı</h2>
-          <p>Gerçek servis ölçümlerinin model eğitimi için yeterli olup olmadığını buradan takip edebilirsiniz.</p>
+          <h2>Veri miktarı</h2>
         </div>
-        <span v-if="readiness" class="state-chip" :class="{ ready: readiness.isolation_forest_ready }">
-          {{ readiness.isolation_forest_ready ? "Isolation Forest hazır" : "Veri toplanıyor" }}
-        </span>
       </div>
 
       <p v-if="!readiness" class="empty-message">Seçili servis için henüz model verisi bulunmuyor.</p>
       <div v-else class="readiness-grid">
-        <article>
-          <div class="progress-heading"><strong>Isolation Forest</strong><span>{{ readiness.eligible_isolation_forest_sample_count }} / {{ readiness.isolation_forest_minimum_samples }} örnek</span></div>
-          <div class="progress-track"><span :style="{ width: `${isolationProgress}%` }"></span></div>
-          <p>{{ readiness.isolation_forest_ready ? "Model eğitimi için yeterli veri var." : "Normal çalışma örnekleri toplanıyor." }}</p>
-        </article>
-        <article>
-          <div class="progress-heading"><strong>LSTM</strong><span>{{ readiness.candidate_sequence_count }} / {{ readiness.lstm_minimum_sequences }} dizi</span></div>
-          <div class="progress-track"><span :style="{ width: `${lstmProgress}%` }"></span></div>
-          <p v-if="readiness.lstm_ready">Zaman dizisi değerlendirmesi çalıştırılabilir.</p>
-          <p v-else>Yaklaşık {{ readiness.estimated_minutes_remaining_for_lstm }} dakika ve {{ readiness.windows_remaining_for_lstm }} ölçüm dönemi kaldı.</p>
+        <article class="sample-count-card">
+          <div class="progress-heading"><strong>Isolation Forest</strong><span>{{ readiness.eligible_isolation_forest_sample_count }} örnek</span></div>
         </article>
       </div>
     </section>
@@ -139,8 +133,10 @@ function modelStatus(model: DetectorModel) {
           <h2>Isolation Forest</h2>
           <p>Normal servis davranışını öğrenir ve bu davranıştan uzaklaşan ölçüm dönemlerini işaretler.</p>
         </div>
-        <button class="primary-action" :disabled="loading || !readiness?.isolation_forest_ready" @click="emit('trainModel')">Yeni model eğit</button>
+        <button class="primary-action" :disabled="loading || !readiness?.isolation_forest_ready" @click="emit('trainModel')">{{ sortedModels.length ? "Güncel verilerle yeniden eğit" : "Modeli eğit" }}</button>
       </div>
+
+      <p v-if="sortedModels.length" class="training-note">Yeniden eğitim ayrı bir sonuç oluşturur. Mevcut aktif model siz canlı kullanıma alana kadar değişmez.</p>
 
       <p v-if="!readiness?.isolation_forest_ready" class="inline-message warning">Eğitim için en az {{ readiness?.isolation_forest_minimum_samples ?? 50 }} uygun örnek gerekir.</p>
       <p v-if="!sortedModels.length" class="empty-message">Bu servis için eğitilmiş model bulunmuyor.</p>
@@ -202,11 +198,11 @@ function modelStatus(model: DetectorModel) {
           <span>F1-score {{ percentage(isolationForestSummary.f1) }}</span>
         </div>
         <dl class="result-grid five-columns">
-          <div><dt>Precision <span>Alarmların doğruluğu</span></dt><dd>{{ percentage(isolationForestSummary.precision) }}</dd></div>
+          <div><dt>Precision <span>Alarm üretildiyse doğruluğu</span></dt><dd>{{ precisionLabel(isolationForestSummary) }}</dd></div>
           <div><dt>Recall <span>Yakalanan gerçek sorunlar</span></dt><dd>{{ percentage(isolationForestSummary.recall) }}</dd></div>
           <div><dt>F1-score <span>Precision ve Recall dengesi</span></dt><dd>{{ percentage(isolationForestSummary.f1) }}</dd></div>
           <div><dt>Yanlış alarm <span>Düşük olması beklenir</span></dt><dd>{{ percentage(isolationForestSummary.falsePositiveRate) }}</dd></div>
-          <div><dt>Tespit süresi <span>Düşük olması beklenir</span></dt><dd>{{ isolationForestSummary.detectionDelay === null ? "Ölçülmedi" : `${isolationForestSummary.detectionDelay.toFixed(1)} sn` }}</dd></div>
+          <div><dt>Tespit süresi <span>Düşük olması beklenir</span></dt><dd>{{ isolationForestSummary.detectionDelay === null ? "Tespit yok" : `${isolationForestSummary.detectionDelay.toFixed(1)} sn` }}</dd></div>
         </dl>
         <p class="decision-counts">{{ isolationForestSummary.truePositive }} sorun doğru yakalandı · {{ isolationForestSummary.falseNegative }} sorun kaçırıldı · {{ isolationForestSummary.falsePositive }} yanlış alarm oluştu · {{ isolationForestSummary.trueNegative }} normal dönem doğru değerlendirildi</p>
 
@@ -214,7 +210,7 @@ function modelStatus(model: DetectorModel) {
           <summary>Deney sonuçlarını tek tek göster</summary>
           <div v-for="(item, index) in isolationForestEvaluations" :key="item.id" class="experiment-row">
             <span><strong>Deney {{ index + 1 }}</strong><small>{{ formatDate(item.evaluated_at) }}</small></span>
-            <span>Precision {{ percentage(item.precision) }}</span><span>Recall {{ percentage(item.recall) }}</span><span>F1 {{ percentage(item.f1_score) }}</span>
+            <span>Precision {{ evaluationPrecisionLabel(item) }}</span><span>Recall {{ percentage(item.recall) }}</span><span>F1 {{ percentage(item.f1_score) }}</span>
           </div>
         </details>
       </template>
@@ -232,11 +228,11 @@ function modelStatus(model: DetectorModel) {
         <article v-for="group in baselineGroups" :key="group.type">
           <div class="comparison-title"><h3>{{ detectorName(group.type) }}</h3><span>{{ group.summary?.count }} deney</span></div>
           <dl v-if="group.summary" class="result-grid five-columns compact">
-            <div><dt>Precision</dt><dd>{{ percentage(group.summary.precision) }}</dd></div>
+            <div><dt>Precision</dt><dd>{{ precisionLabel(group.summary) }}</dd></div>
             <div><dt>Recall</dt><dd>{{ percentage(group.summary.recall) }}</dd></div>
             <div><dt>F1-score</dt><dd>{{ percentage(group.summary.f1) }}</dd></div>
             <div><dt>Yanlış alarm</dt><dd>{{ percentage(group.summary.falsePositiveRate) }}</dd></div>
-            <div><dt>Tespit süresi</dt><dd>{{ group.summary.detectionDelay === null ? "Ölçülmedi" : `${group.summary.detectionDelay.toFixed(1)} sn` }}</dd></div>
+            <div><dt>Tespit süresi</dt><dd>{{ group.summary.detectionDelay === null ? "Tespit yok" : `${group.summary.detectionDelay.toFixed(1)} sn` }}</dd></div>
           </dl>
         </article>
       </div>
@@ -256,15 +252,16 @@ function modelStatus(model: DetectorModel) {
 button:disabled { cursor: wait; opacity: .55; }
 .state-chip { display: inline-flex; min-height: 27px; align-items: center; border-radius: 999px; background: #eef2f0; padding: 0 10px; color: #536c62; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .state-chip.ready { background: #e3f3eb; color: #176044; }
-.readiness-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+.readiness-grid { margin-top: 20px; }
 .readiness-grid article { border: 1px solid #dce7e2; border-radius: 10px; background: #f7faf8; padding: 16px; }
+.readiness-grid .sample-count-card { display: flex; align-items: center; }
+.sample-count-card .progress-heading { width: 100%; }
 .progress-heading { display: flex; justify-content: space-between; gap: 18px; color: #24493c; font-size: 13px; }
 .progress-heading span { color: #587067; font-size: 12px; }
-.progress-track { height: 7px; overflow: hidden; margin-top: 12px; border-radius: 999px; background: #e2eae6; }
-.progress-track span { display: block; height: 100%; border-radius: inherit; background: #2b8062; }
 .readiness-grid p { margin: 10px 0 0; color: #536b61; font-size: 12px; line-height: 1.5; }
 .inline-message, .empty-message { margin: 18px 0 0; border: 1px solid #dce7e2; border-radius: 8px; background: #f5f8f6; padding: 13px 15px; color: #426056; font-size: 12px; line-height: 1.55; }
 .inline-message.warning { border-color: #ead8b9; background: #fff8ec; color: #70521d; }
+.training-note { margin: 14px 0 0; color: #536b61; font-size: 12px; line-height: 1.55; }
 .model-list { margin-top: 18px; border-top: 1px solid #dfe8e4; }
 .model-row { padding: 18px 0; border-bottom: 1px solid #dfe8e4; }
 .model-row:last-child { border-bottom: 0; padding-bottom: 0; }
