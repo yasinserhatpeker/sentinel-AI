@@ -13,7 +13,7 @@ const chartPoints = computed(() => {
     .join(" ");
 });
 
-const summary = computed(() => (props.values.length ? props.values.at(-1)?.toFixed(1) : "No data"));
+const summary = computed(() => (props.values.length ? props.values.at(-1)?.toFixed(1) : "Veri yok"));
 const markerPoints = computed(() => {
   if (!props.values.length) return [];
   const minimum = Math.min(...props.values); const maximum = Math.max(...props.values); const span = maximum - minimum || 1;
