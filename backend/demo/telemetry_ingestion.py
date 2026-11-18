@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from statistics import fmean, pstdev
 
 from django.db.models import Count
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from .models import TelemetryAggregate, TelemetryEvent, TelemetryFeature
@@ -111,13 +111,33 @@ def percentile(values: list[float], rank: float) -> float:
     return ordered[lower] + ((ordered[upper] - ordered[lower]) * (position - lower))
 
 
-def aggregate_minute(window_start: datetime) -> int:
+def aggregate_minute(window_start: datetime, *, wait_for_lock: bool = True) -> int:
     """Upsert aggregate rows for one UTC minute; safe to re-run for the same window."""
 
     if timezone.is_naive(window_start):
         raise ValueError("window_start_must_be_utc_aware")
     start = window_start.astimezone(UTC).replace(second=0, microsecond=0)
     end = start + timedelta(minutes=1)
+    # Telemetry arrives from several services concurrently. Serialise updates
+    # for the same minute so update_or_create cannot race on the unique scope.
+    lock_key = int.from_bytes(
+        hashlib.sha256(start.isoformat().encode("utf-8")).digest()[:8],
+        byteorder="big",
+        signed=True,
+    )
+    with transaction.atomic():
+        if connection.vendor == "postgresql":
+            with connection.cursor() as cursor:
+                lock_function = "pg_advisory_xact_lock" if wait_for_lock else "pg_try_advisory_xact_lock"
+                cursor.execute(f"SELECT {lock_function}(%s)", [lock_key])
+                if not wait_for_lock and not cursor.fetchone()[0]:
+                    return 0
+        return _aggregate_minute_locked(start, end)
+
+
+def _aggregate_minute_locked(start: datetime, end: datetime) -> int:
+    """Recompute one minute while the caller holds its advisory lock."""
+
     groups: dict[tuple, list[TelemetryEvent]] = defaultdict(list)
 
     for event in TelemetryEvent.objects.filter(observed_at__gte=start, observed_at__lt=end).order_by(

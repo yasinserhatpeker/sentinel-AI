@@ -1,5 +1,6 @@
 from django.core.cache import cache
 from django.db.models import OuterRef, QuerySet, Subquery
+from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -12,7 +13,7 @@ from .detection.base import normalize_positive_score, normalize_signed_score
 from .detection.isolation_forest import activate_model, train_isolation_forest
 from .detection.readiness import model_data_readiness
 from .detection.sequences import materialize_sequence_journals, train_lstm_prototype
-from .faults import repeat_experiment, start_experiment, stop_experiment
+from .faults import complete_expired_recoveries, repeat_experiment, start_experiment, stop_experiment
 from .models import DetectionDecision, DetectorEvaluation, DetectorModel, FaultExperiment, Order, TelemetryAggregate
 from .serializers import (
     BoundedAnalysisQuerySerializer,
@@ -121,10 +122,13 @@ class TelemetryIngestView(APIView):
         events = serializer.validated_data["events"]
         inserted, duplicates = persist_metric_events(events)
         # Keep the local dashboard responsive after a genuine service request.
-        # The periodic task still recomputes completed windows; this upsert only
-        # exposes the in-progress minute sooner and never fabricates a value.
+        # Debounce concurrent service bursts and never make ingest requests wait
+        # behind the same PostgreSQL advisory lock. Dashboard reads perform one
+        # authoritative recomputation after the burst.
         for window in {event["observed_at"].replace(second=0, microsecond=0) for event in events}:
-            aggregate_minute(window)
+            cache_key = f"telemetry:inline-aggregate:{window.isoformat()}"
+            if cache.add(cache_key, "1", timeout=1):
+                aggregate_minute(window, wait_for_lock=False)
         return Response(
             {
                 "schema_version": serializer.validated_data["schema_version"],
@@ -157,6 +161,7 @@ class SystemOverviewView(APIView):
         serializer = TelemetryServiceQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         environment = serializer.validated_data["environment"]
+        complete_expired_recoveries(environment=environment)
 
         latest_window = (
             TelemetryAggregate.objects.filter(
@@ -275,6 +280,7 @@ class TelemetryAggregateListView(APIView):
         serializer = TelemetryAggregateQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         scope = serializer.validated_data
+        aggregate_minute(timezone.now().replace(second=0, microsecond=0))
         aggregates: QuerySet[TelemetryAggregate] = TelemetryAggregate.objects.filter(
             environment=scope["environment"],
             service=scope["service"],
@@ -459,6 +465,7 @@ class FaultExperimentListCreateView(APIView):
         serializer = BoundedAnalysisQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         scope = serializer.validated_data
+        complete_expired_recoveries(environment=scope["environment"], service=scope["service"])
         experiments = FaultExperiment.objects.filter(environment=scope["environment"], service=scope["service"], created_at__gte=scope["start"], created_at__lt=scope["end"]).select_related("created_by", "repeated_from").order_by("-created_at")[:scope["limit"]]
         return Response({"schema_version": "fault-experiments.v1", "results": [_experiment_data(item) for item in experiments]})
 

@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from demo.faults import recover_expired_experiments, repeat_experiment, start_experiment, stop_experiment
+from demo.faults import RECOVERY_SECONDS, recover_expired_experiments, repeat_experiment, start_experiment, stop_experiment
 from demo.models import FaultExperiment, GroundTruthWindow
 
 
@@ -55,6 +55,7 @@ class FaultExperimentTests(TestCase):
         repeated_stop = stop_experiment(stopped, now=experiment.started_at + timedelta(seconds=40))
 
         self.assertEqual(stopped.status, FaultExperiment.Status.RECOVERING)
+        self.assertEqual(stopped.recovery_until, stopped.stopped_at + timedelta(seconds=RECOVERY_SECONDS))
         self.assertEqual(repeated_stop.status, FaultExperiment.Status.RECOVERING)
         labels = set(stopped.ground_truth_windows.values_list("label", flat=True))
         self.assertEqual(labels, {GroundTruthWindow.Label.NORMAL, GroundTruthWindow.Label.FAULT_ACTIVE, GroundTruthWindow.Label.RECOVERING})
@@ -71,6 +72,34 @@ class FaultExperimentTests(TestCase):
         self.assertEqual(recover_expired_experiments(now=experiment.recovery_until + timedelta(seconds=1)), 1)
         experiment.refresh_from_db()
         self.assertEqual(experiment.status, FaultExperiment.Status.COMPLETED)
+
+    @patch("demo.faults._send_control", return_value={"status": "active"})
+    def test_new_experiment_self_heals_elapsed_recovery_without_watchdog(self, _send_control) -> None:
+        elapsed = FaultExperiment.objects.create(
+            environment="local",
+            service="inventory-api",
+            fault_type=FaultExperiment.FaultType.HIGH_LATENCY,
+            status=FaultExperiment.Status.RECOVERING,
+            parameters={"delay_ms": 500.0},
+            duration_seconds=30,
+            seed=10,
+            created_by=self.admin,
+            stopped_at=timezone.now() - timedelta(minutes=3),
+            recovery_until=timezone.now() - timedelta(minutes=1),
+        )
+
+        started = start_experiment(
+            actor=self.admin,
+            service="inventory-api",
+            fault_type=FaultExperiment.FaultType.HIGH_LATENCY,
+            duration_seconds=30,
+            parameters={"delay_ms": 750},
+            seed=11,
+        )
+
+        elapsed.refresh_from_db()
+        self.assertEqual(elapsed.status, FaultExperiment.Status.COMPLETED)
+        self.assertEqual(started.status, FaultExperiment.Status.ACTIVE)
 
     @patch("demo.faults._send_control")
     def test_watchdog_reconciles_fault_cleared_by_service_restart(self, send_control) -> None:

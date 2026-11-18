@@ -6,7 +6,7 @@ export const demoServiceNames = [
   "notifications-api",
 ] as const;
 
-export const demoOperations = ["create-read", "update", "delete"] as const;
+export const demoOperations = ["create", "update", "delete"] as const;
 
 export type DemoServiceName = (typeof demoServiceNames)[number];
 export type DemoOperation = (typeof demoOperations)[number];
@@ -56,24 +56,24 @@ export async function runDemoActivity(service: DemoServiceName, operation: DemoO
   if (operation === "update") {
     await request<DomainRecord>(detail, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(activity.update) });
     await request<DomainRecord>(detail);
-    return { methods: "POST + PATCH + GET", recordCount: 1 };
+    return { methods: "POST + PATCH + GET", requestedCount: 1, createdCount: 1, failedCount: 0, requestCount: 3 };
   }
   if (operation === "delete") {
     await request<void>(detail, { method: "DELETE" });
-    const records = await request<unknown[]>(activity.collection);
-    return { methods: "POST + DELETE + GET", recordCount: records.length };
+    await request<unknown[]>(activity.collection);
+    return { methods: "POST + DELETE + GET", requestedCount: 1, createdCount: 1, failedCount: 0, requestCount: 3 };
   }
-
-  const records = await request<unknown[]>(activity.collection);
-  return { methods: "POST + GET", recordCount: records.length };
+  return { methods: "POST", requestedCount: 1, createdCount: 1, failedCount: 0, requestCount: 1 };
 }
 
 /** Creates domain records through the service API so every request and queued job is real. */
 export async function runDemoBatch(service: DemoServiceName, count = 10) {
   const concurrency = 10;
+  let createdCount = 0;
+  let failedCount = 0;
   for (let start = 0; start < count; start += concurrency) {
     const currentBatchSize = Math.min(concurrency, count - start);
-    await Promise.all(Array.from({ length: currentBatchSize }, async () => {
+    const results = await Promise.allSettled(Array.from({ length: currentBatchSize }, async () => {
       const activity = serviceActivity(service, `${Date.now()}-${Math.floor(Math.random() * 10_000_000)}`);
       await request<DomainRecord>(activity.collection, {
         method: "POST",
@@ -81,8 +81,23 @@ export async function runDemoBatch(service: DemoServiceName, count = 10) {
         body: JSON.stringify(activity.payload),
       });
     }));
+    createdCount += results.filter((result) => result.status === "fulfilled").length;
+    failedCount += results.filter((result) => result.status === "rejected").length;
   }
-  const activity = serviceActivity(service, `read-${Date.now()}`);
-  const records = await request<unknown[]>(activity.collection);
-  return { createdCount: count, recordCount: records.length };
+  return { requestedCount: count, createdCount, failedCount, requestCount: count };
+}
+
+/** Starts real bounded batches on every demo service at the same time. */
+export async function runAllDemoServices(count = 1) {
+  const results = await Promise.all(demoServiceNames.map(async (service) => ({
+    service,
+    ...(await runDemoBatch(service, count)),
+  })));
+  return {
+    serviceCount: results.length,
+    requestedCount: results.reduce((total, result) => total + result.requestedCount, 0),
+    createdCount: results.reduce((total, result) => total + result.createdCount, 0),
+    failedCount: results.reduce((total, result) => total + result.failedCount, 0),
+    requestCount: results.reduce((total, result) => total + result.requestCount, 0),
+  };
 }

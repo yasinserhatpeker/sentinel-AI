@@ -11,9 +11,9 @@ import { getAggregates, getServices, getSystemOverview } from "./telemetry/servi
 import type { MetricGroup, SystemOverviewResponse, TelemetryAggregateResponse, TelemetryPoint } from "./telemetry/types";
 import { TelemetryApiError } from "./telemetry/types";
 import { initialiseCsrf, login, logout, refresh } from "./auth";
-import { demoServiceNames, runDemoActivity, runDemoBatch, type DemoOperation, type DemoServiceName } from "./demo-activity";
+import { demoServiceNames, runAllDemoServices, runDemoActivity, runDemoBatch, type DemoOperation, type DemoServiceName } from "./demo-activity";
 import { activateModel, createFaultExperiment, getAnomalies, getAnomaly, getEvaluations, getFaultExperiments, getModelReadiness, getModels, repeatFaultExperiment, stopFaultExperiment, trainLstmPrototype, trainModel } from "./analysis/service";
-import { activeFaults, percentage, severityLabel } from "./analysis/state";
+import { activeFaults, faultRemainingSeconds, percentage, severityLabel } from "./analysis/state";
 import type { Anomaly, DetectorEvaluation, DetectorModel, FaultExperiment, LstmPrototypeResult, ModelReadinessResponse } from "./analysis/types";
 
 const token = ref("");
@@ -29,6 +29,8 @@ const loading = ref(false);
 const errorCode = ref("");
 const generatingActivity = ref(false);
 const activityMessage = ref("");
+type ActivityResultSummary = { requested: number; successful: number; failed: number; requestCount: number };
+const activityResult = ref<ActivityResultSummary | null>(null);
 const overview = ref<SystemOverviewResponse | null>(null);
 const overviewLoading = ref(false);
 const overviewError = ref("");
@@ -39,12 +41,15 @@ const analysisError = ref("");
 const anomalies = ref<Anomaly[]>([]);
 const selectedAnomaly = ref<Anomaly | null>(null);
 const faultExperiments = ref<FaultExperiment[]>([]);
+const faultClock = ref(Date.now());
+let faultClockTimer: number | undefined;
 const models = ref<DetectorModel[]>([]);
 const evaluations = ref<DetectorEvaluation[]>([]);
 const modelReadiness = ref<ModelReadinessResponse | null>(null);
 const lstmResult = ref<LstmPrototypeResult | null>(null);
 const isolationForestEvaluations = computed(() => evaluations.value.filter((item) => item.detector_type === "isolation_forest"));
 const baselineEvaluations = computed(() => evaluations.value.filter((item) => item.detector_type !== "isolation_forest"));
+const blockingFaultExperiments = computed(() => activeFaults(faultExperiments.value, faultClock.value));
 const faultType = ref("high_latency");
 const faultDuration = ref(60);
 const faultValue = ref(750);
@@ -71,6 +76,7 @@ const viewState = computed(() => dashboardState({
   response: response.value,
 }));
 const serviceOptions = computed(() => (services.value.length ? services.value : [...demoServiceNames]).map((service) => ({ label: service, value: service })));
+const selectedServiceSupportsActivity = computed(() => demoServiceNames.includes(selectedService.value as DemoServiceName));
 const rangeOptions = [
   { label: "Son 1 saat", value: "1h" },
   { label: "Son 6 saat", value: "6h" },
@@ -91,6 +97,7 @@ function analysisErrorMessage(code: string) {
     lstm_minimum_sequences_not_met: "LSTM prototipi için en az 60 geçerli dizi gerekiyor",
     lstm_split_incomplete: "Kronolojik eğitim, doğrulama ve test ayrımları henüz tamamlanmadı",
     validation_failed: "Gönderilen analiz parametreleri geçerli değil",
+    fault_experiment_conflict: "Bu serviste aktif veya recovery döneminde bir fault bulunuyor",
     request_failed: "Analiz servisine ulaşılamadı",
   } as Record<string, string>)[code] ?? code;
 }
@@ -114,6 +121,13 @@ function statusLabel(status: string) {
     isolation_forest_ready: "Isolation Forest hazır",
     lstm_ready: "LSTM hazır",
   } as Record<string, string>)[status] ?? status;
+}
+
+function faultCountdownLabel(experiment: FaultExperiment) {
+  const remaining = faultRemainingSeconds(experiment, faultClock.value);
+  if (remaining === null) return "";
+  if (remaining === 0) return "durum güncelleniyor";
+  return experiment.status === "recovering" ? `${remaining} sn sonra yeniden kullanılabilir` : `${remaining} sn kaldı`;
 }
 
 function faultTypeLabel(type: string) {
@@ -271,7 +285,7 @@ async function loadSystemOverview() {
 }
 
 const operationLabels: Record<DemoOperation, string> = {
-  "create-read": "Kayıt oluştur ve listele",
+  create: "Kayıt oluştur",
   update: "Kayıt güncelle",
   delete: "Kayıt sil",
 };
@@ -279,6 +293,7 @@ const operationLabels: Record<DemoOperation, string> = {
 async function runRealActivity(operation: DemoOperation) {
   if (!token.value || !selectedService.value || !demoServiceNames.includes(selectedService.value as DemoServiceName)) return;
   generatingActivity.value = true;
+  activityResult.value = null;
   activityMessage.value = `${operationLabels[operation]} işlemi için gerçek API istekleri çalıştırılıyor…`;
   try {
     const result = await runDemoActivity(selectedService.value as DemoServiceName, operation);
@@ -288,7 +303,8 @@ async function runRealActivity(operation: DemoOperation) {
     const discovered = await withFreshAccess((accessToken) => getServices(accessToken, "local"));
     services.value = discovered.services;
     await loadDashboard();
-    activityMessage.value = `${result.methods} tamamlandı. GET ile ${result.recordCount} kayıt okundu; gösterge paneli güncellendi.`;
+    activityResult.value = { requested: result.requestedCount, successful: result.createdCount, failed: result.failedCount, requestCount: result.requestCount };
+    activityMessage.value = `${result.methods} tamamlandı. ${result.createdCount} kayıt başarıyla oluşturuldu; gösterge paneli güncellendi.`;
   } catch (error) {
     activityMessage.value = error instanceof Error ? `Demo isteği başarısız: ${error.message}` : "Demo isteği başarısız.";
   } finally {
@@ -299,6 +315,7 @@ async function runRealActivity(operation: DemoOperation) {
 async function runBatchActivity(count: 10 | 100 | 1000) {
   if (!token.value || !selectedService.value || !demoServiceNames.includes(selectedService.value as DemoServiceName)) return;
   generatingActivity.value = true;
+  activityResult.value = null;
   activityMessage.value = `${count} gerçek kayıt ve bunlara bağlı arka plan işleri oluşturuluyor…`;
   try {
     const result = await runDemoBatch(selectedService.value as DemoServiceName, count);
@@ -306,9 +323,50 @@ async function runBatchActivity(count: 10 | 100 | 1000) {
     const discovered = await withFreshAccess((accessToken) => getServices(accessToken, "local"));
     services.value = discovered.services;
     await loadDashboard();
-    activityMessage.value = `${result.createdCount} kayıt oluşturuldu. ${result.recordCount} kayıt okundu; HTTP ve Queue Telemetry verileri güncellendi.`;
+    activityResult.value = { requested: result.requestedCount, successful: result.createdCount, failed: result.failedCount, requestCount: result.requestCount };
+    activityMessage.value = `${result.createdCount}/${result.requestedCount} kayıt başarıyla oluşturuldu. HTTP ve Queue Telemetry verileri güncellendi.`;
   } catch (error) {
     activityMessage.value = error instanceof Error ? `Toplu kayıt isteği başarısız: ${error.message}` : "Toplu kayıt isteği başarısız.";
+  } finally {
+    generatingActivity.value = false;
+  }
+}
+
+async function runAllServicesActivity(count: 1 | 10 | 100) {
+  if (!token.value) return;
+  generatingActivity.value = true;
+  activityResult.value = null;
+  activityMessage.value = `${demoServiceNames.length} serviste eş zamanlı olarak servis başına ${count} gerçek kayıt oluşturuluyor…`;
+  try {
+    const result = await runAllDemoServices(count);
+    await new Promise((resolve) => window.setTimeout(resolve, count === 1 ? 1200 : count === 10 ? 2500 : 7000));
+    const discovered = await withFreshAccess((accessToken) => getServices(accessToken, "local"));
+    services.value = discovered.services;
+    await loadDashboard();
+    activityResult.value = { requested: result.requestedCount, successful: result.createdCount, failed: result.failedCount, requestCount: result.requestCount };
+    activityMessage.value = `${result.serviceCount} serviste ${result.createdCount}/${result.requestedCount} kayıt başarıyla oluşturuldu. Telemetry verileri güncellendi.`;
+  } catch (error) {
+    activityMessage.value = error instanceof Error ? `Eş zamanlı trafik isteği başarısız: ${error.message}` : "Eş zamanlı trafik isteği başarısız.";
+  } finally {
+    generatingActivity.value = false;
+  }
+}
+
+async function runDependencyWorkflow() {
+  if (!token.value) return;
+  generatingActivity.value = true;
+  activityResult.value = null;
+  activityMessage.value = "Siparişten ödeme, stok, bildirim ve raporlamaya uzanan gerçek servis akışı çalıştırılıyor…";
+  try {
+    const result = await runDemoActivity("orders-api", "create");
+    await new Promise((resolve) => window.setTimeout(resolve, 1800));
+    const discovered = await withFreshAccess((accessToken) => getServices(accessToken, "local"));
+    services.value = discovered.services;
+    await loadDashboard();
+    activityResult.value = { requested: result.requestedCount, successful: result.createdCount, failed: result.failedCount, requestCount: result.requestCount };
+    activityMessage.value = "Sipariş akışı başlatıldı. Downstream servislerin HTTP, Database ve Queue Telemetry verileri güncellendi.";
+  } catch (error) {
+    activityMessage.value = error instanceof Error ? `Sipariş akışı başarısız: ${error.message}` : "Sipariş akışı başarısız.";
   } finally {
     generatingActivity.value = false;
   }
@@ -356,8 +414,15 @@ function handleUserMenuOutside(event: PointerEvent) {
 }
 
 async function signOut() { userMenuOpen.value = false; await logout(); token.value = ""; currentUsername.value = ""; response.value = null; services.value = []; }
-onMounted(() => { document.addEventListener("pointerdown", handleUserMenuOutside); void restoreSession(); });
-onBeforeUnmount(() => document.removeEventListener("pointerdown", handleUserMenuOutside));
+onMounted(() => {
+  document.addEventListener("pointerdown", handleUserMenuOutside);
+  faultClockTimer = window.setInterval(() => { faultClock.value = Date.now(); }, 1000);
+  void restoreSession();
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", handleUserMenuOutside);
+  if (faultClockTimer !== undefined) window.clearInterval(faultClockTimer);
+});
 </script>
 
 <template>
@@ -433,9 +498,9 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", handleUserMenu
         </section>
 
         <section v-if="activeView === 'faults' && !analysisLoading" class="grid gap-4">
-          <p v-if="activeFaults(faultExperiments).length" class="notice notice--warning" role="alert"><strong>Aktif fault:</strong> {{ activeFaults(faultExperiments).map((item) => `${item.service} · ${faultTypeLabel(item.fault_type)} · ${statusLabel(item.status)}`).join(', ') }}</p>
-          <article class="panel"><header><div><p class="eyebrow">KONTROLLÜ FAULT</p><h2>Yeni yerel deney</h2></div><span>süper yönetici</span></header><p class="panel-description">Fault yalnızca izinli listedeki yerel demo servisinde, süre ve şiddet sınırlarıyla çalışır.</p><div class="form-grid"><label>Fault türü<select v-model="faultType"><option value="high_latency">Yüksek gecikme</option><option value="error_burst">Hata patlaması</option><option value="database_slowdown">Veritabanı yavaşlaması</option><option value="queue_backlog">Queue birikmesi</option></select></label><label>Süre (sn)<input v-model.number="faultDuration" type="number" min="15" max="600" /></label><label>{{ faultType === 'error_burst' ? 'Hata olasılığı (%)' : 'Gecikme (ms)' }}<input v-model.number="faultValue" type="number" :min="faultType === 'error_burst' ? 5 : 50" :max="faultType === 'error_burst' ? 100 : 5000" /></label><button class="primary-button" :disabled="analysisLoading || Boolean(activeFaults(faultExperiments).length)" @click="createFault">Deneyi başlat</button></div></article>
-          <article class="panel"><header><div><p class="eyebrow">DENEY GEÇMİŞİ</p><h2>Fault geçmişi</h2></div><span>{{ faultExperiments.length }} kayıt</span></header><p v-if="!faultExperiments.length" class="notice">Bu kapsam için fault deneyi bulunmuyor.</p><div v-for="item in faultExperiments" :key="item.id" class="table-row"><span><strong>{{ faultTypeLabel(item.fault_type) }}</strong><small>{{ item.service }} · {{ item.duration_seconds }} sn · rastgelelik tohumu {{ item.seed }}</small></span><span class="status-chip">{{ statusLabel(item.status) }}</span><div class="row-actions"><button v-if="['pending','active'].includes(item.status)" @click="stopFault(item.id)">Durdur</button><button v-if="['completed','stopped','failed'].includes(item.status)" @click="repeatFault(item.id)">Tekrarla</button></div></div></article>
+          <p v-if="blockingFaultExperiments.length" class="notice notice--warning" role="alert"><strong>Aktif fault:</strong> {{ blockingFaultExperiments.map((item) => `${item.service} · ${faultTypeLabel(item.fault_type)} · ${statusLabel(item.status)} · ${faultCountdownLabel(item)}`).join(', ') }}</p>
+          <article class="panel"><header><div><p class="eyebrow">KONTROLLÜ FAULT</p><h2>Yeni yerel deney</h2></div><span>süper yönetici</span></header><p class="panel-description">Fault yalnızca izinli listedeki yerel demo servisinde çalışır. Fault bittikten sonra iki dakikalık recovery dönemi uygulanır; aynı serviste yeni deney bu sayaç bitince başlatılabilir.</p><div class="form-grid"><label>Fault türü<select v-model="faultType"><option value="high_latency">Yüksek gecikme</option><option value="error_burst">Hata patlaması</option><option value="database_slowdown">Veritabanı yavaşlaması</option><option value="queue_backlog">Queue birikmesi</option></select></label><label>Süre (sn)<input v-model.number="faultDuration" type="number" min="15" max="600" /></label><label>{{ faultType === 'error_burst' ? 'Hata olasılığı (%)' : 'Gecikme (ms)' }}<input v-model.number="faultValue" type="number" :min="faultType === 'error_burst' ? 5 : 50" :max="faultType === 'error_burst' ? 100 : 5000" /></label><button class="primary-button" :disabled="analysisLoading || Boolean(blockingFaultExperiments.length)" @click="createFault">Deneyi başlat</button></div></article>
+          <article class="panel"><header><div><p class="eyebrow">DENEY GEÇMİŞİ</p><h2>Fault geçmişi</h2></div><span>{{ faultExperiments.length }} kayıt</span></header><p v-if="!faultExperiments.length" class="notice">Bu kapsam için fault deneyi bulunmuyor.</p><div v-for="item in faultExperiments" :key="item.id" class="table-row"><span><strong>{{ faultTypeLabel(item.fault_type) }}</strong><small>{{ item.service }} · {{ item.duration_seconds }} sn · rastgelelik tohumu {{ item.seed }}</small></span><span class="status-chip">{{ statusLabel(item.status) }}<template v-if="faultCountdownLabel(item)"> · {{ faultCountdownLabel(item) }}</template></span><div class="row-actions"><button v-if="['pending','active'].includes(item.status)" @click="stopFault(item.id)">Durdur</button><button v-if="['completed','stopped','failed'].includes(item.status)" @click="repeatFault(item.id)">Tekrarla</button></div></div></article>
         </section>
 
         <section v-if="activeView === 'models' && !analysisLoading" class="grid gap-4">
@@ -455,21 +520,34 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", handleUserMenu
           <button class="secondary-button" :disabled="loading || !selectedService" @click="loadDashboard">Yenile</button>
         </section>
 
-        <section class="mb-[18px] flex flex-wrap items-center justify-between gap-4 rounded-[14px] border border-[#d6e2dc] bg-[#fbfcfb] px-[22px] py-[18px] shadow-[0_8px_18px_rgba(12,57,43,.06)]" aria-label="Gerçek demo aktivitesi">
-          <div>
-            <p class="m-0 text-[11px] font-bold tracking-[.08em] text-[#61776d]">CANLI DEMO AKTİVİTESİ</p>
-            <h2 class="mt-1 mb-0 text-[17px] tracking-[-.025em] text-[#203c33]">Seçili servis için gerçek API işlemi oluştur</h2>
-            <p class="mt-1 mb-0 text-[13px] text-[#657a71]">Her buton gerçek CRUD isteği çalıştırır. Gösterge paneli yalnızca HTTP, ORM ve Queue işlemlerinin ürettiği Telemetry verisini gösterir.</p>
+        <section class="mb-[18px] overflow-hidden rounded-[12px] border border-[#d6e2dc] bg-[#fbfcfb] shadow-[0_6px_16px_rgba(12,57,43,.045)]" aria-label="Gerçek servis trafiği">
+          <div class="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(240px,.72fr)_minmax(0,1.28fr)] lg:items-center">
+            <div><h2 class="m-0 text-[15px] font-semibold text-[#203c33]">Tüm servisler</h2><p class="mt-1 mb-0 max-w-[520px] text-[11px] leading-5 text-[#70837a]">Bütün demo servislerine paralel gerçek istek gönderin veya mevcut sipariş bağımlılık akışını başlatın.</p></div>
+            <div class="flex flex-wrap gap-2 lg:justify-end">
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity" @click="runDependencyWorkflow">Sipariş akışını çalıştır</button>
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity" @click="runAllServicesActivity(1)">1 istek / servis</button>
+              <button class="min-h-[38px] rounded-md border border-sentinel-primary bg-sentinel-primary px-3.5 text-[11px] font-semibold text-white hover:bg-[#0e5b42] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity" @click="runAllServicesActivity(10)">10 istek / servis</button>
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity" @click="runAllServicesActivity(100)">100 istek / servis</button>
+            </div>
           </div>
-          <div class="flex flex-wrap gap-2">
-            <button class="min-h-[40px] rounded-lg border border-sentinel-primary bg-sentinel-primary px-4 text-[13px] font-semibold text-white hover:bg-[#0e5b42] disabled:cursor-wait disabled:opacity-65" :disabled="generatingActivity || !selectedService" @click="runRealActivity('create-read')">{{ generatingActivity ? "İşlem çalışıyor…" : "Kayıt oluştur" }}</button>
-            <button class="min-h-[40px] rounded-lg border border-[#7f9b8f] bg-white px-4 text-[13px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-65" :disabled="generatingActivity || !selectedService" @click="runBatchActivity(10)">10 kayıt oluştur</button>
-            <button class="min-h-[40px] rounded-lg border border-[#7f9b8f] bg-white px-4 text-[13px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-65" :disabled="generatingActivity || !selectedService" @click="runBatchActivity(100)">100 kayıt oluştur</button>
-            <button class="min-h-[40px] rounded-lg border border-[#245b47] bg-[#245b47] px-4 text-[13px] font-semibold text-white hover:bg-[#174836] disabled:cursor-wait disabled:opacity-65" :disabled="generatingActivity || !selectedService" @click="runBatchActivity(1000)">1000 kayıt oluştur</button>
-            <button class="min-h-[40px] rounded-lg border border-[#7f9b8f] bg-white px-4 text-[13px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-65" :disabled="generatingActivity || !selectedService" @click="runRealActivity('update')">Güncelle</button>
-            <button class="min-h-[40px] rounded-lg border border-[#b86c65] bg-white px-4 text-[13px] font-semibold text-[#963f39] hover:bg-[#fdf3f2] disabled:cursor-wait disabled:opacity-65" :disabled="generatingActivity || !selectedService" @click="runRealActivity('delete')">Sil</button>
+          <div class="grid gap-4 border-t border-[#e0e8e4] px-5 py-4 lg:grid-cols-[minmax(240px,.72fr)_minmax(0,1.28fr)] lg:items-center">
+            <div><div class="flex flex-wrap items-center gap-2"><h2 class="m-0 text-[15px] font-semibold text-[#203c33]">Seçili servis</h2><span class="rounded bg-[#edf3f0] px-2 py-1 text-[10px] font-semibold text-[#47685b]">{{ selectedService || 'Servis seçilmedi' }}</span></div><p class="mt-1 mb-0 text-[11px] leading-5 text-[#70837a]">CRUD işlemleri yalnızca yukarıdaki seçimde bulunan servis üzerinde çalışır.</p></div>
+            <div class="flex flex-wrap gap-2 lg:justify-end">
+              <button class="min-h-[38px] rounded-md border border-sentinel-primary bg-sentinel-primary px-3.5 text-[11px] font-semibold text-white hover:bg-[#0e5b42] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runRealActivity('create')">Kayıt oluştur</button>
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runBatchActivity(10)">10 kayıt</button>
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runBatchActivity(100)">100 kayıt</button>
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runBatchActivity(1000)">1000 kayıt</button>
+              <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runRealActivity('update')">Güncelle</button>
+              <button class="min-h-[38px] rounded-md border border-[#b86c65] bg-white px-3.5 text-[11px] font-semibold text-[#963f39] hover:bg-[#fdf3f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runRealActivity('delete')">Sil</button>
+            </div>
           </div>
-          <p v-if="activityMessage" class="m-0 w-full border-t border-[#e4ece8] pt-3 text-[13px] text-[#3f6455]" role="status">{{ activityMessage }}</p>
+          <div v-if="activityResult" class="grid grid-cols-2 gap-0 border-t border-[#dbe6e0] bg-white px-5 py-3 sm:grid-cols-4" aria-label="Son demo işlemi sonucu">
+            <div class="border-[#e2ebe6] py-1 sm:border-r sm:pr-4"><span class="block text-[10px] font-semibold text-[#536d62]">İstenen kayıt</span><strong class="mt-1 block text-[16px] text-[#1d493a]">{{ activityResult.requested }}</strong></div>
+            <div class="border-[#e2ebe6] py-1 sm:border-r sm:px-4"><span class="block text-[10px] font-semibold text-[#536d62]">Başarılı</span><strong class="mt-1 block text-[16px] text-[#146d50]">{{ activityResult.successful }}</strong></div>
+            <div class="border-[#e2ebe6] py-1 sm:border-r sm:px-4"><span class="block text-[10px] font-semibold text-[#536d62]">Başarısız</span><strong class="mt-1 block text-[16px] text-[#963f39]">{{ activityResult.failed }}</strong></div>
+            <div class="py-1 sm:pl-4"><span class="block text-[10px] font-semibold text-[#536d62]">Gönderilen HTTP isteği</span><strong class="mt-1 block text-[16px] text-[#1d493a]">{{ activityResult.requestCount }}</strong></div>
+          </div>
+          <p v-if="activityMessage" class="m-0 border-t border-[#e0e8e4] bg-[#eef5f1] px-5 py-3 text-[12px] font-medium text-[#315b4c]" role="status">{{ activityMessage }}</p>
         </section>
 
         <p v-if="viewState === 'error'" class="notice notice--error" role="alert">Gösterge paneli isteği başarısız: {{ errorCode }}.</p>
@@ -478,7 +556,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", handleUserMenu
         <template v-else-if="hasData">
           <p v-if="viewState === 'partial'" class="notice notice--warning" role="status">Kısmi veri: {{ partialGroups.join(", ") }} metrikleri bu kapsam için kullanılamıyor.</p>
           <section class="summary-grid" aria-label="Seçili servis özeti">
-            <article class="metric-card"><p>İstek sayısı</p><strong>{{ latestSampleCount("http.server.request_count") }}</strong><span>en güncel ölçüm penceresindeki HTTP isteği</span></article>
+            <article class="metric-card"><p>Son window istekleri</p><strong>{{ latestSampleCount("http.server.request_count") }}</strong><span>en güncel bir dakikalık Telemetry window’undaki HTTP istekleri</span></article>
             <article class="metric-card"><p>Hata oranı</p><strong>{{ latest("http.server.error_rate", "last") }}%</strong><span>HTTP isteklerinin başarısızlık oranı</span></article>
             <article class="metric-card"><p>p95 gecikme</p><strong>{{ latest("http.server.duration", "p95") }} ms</strong><span>isteklerin %95’i bu süreden hızlı</span></article>
             <article class="metric-card"><p>Queue derinliği</p><strong>{{ latestWhole("queue.depth") }}</strong><span>worker tarafından bekleyen gerçek iş sayısı</span></article>
