@@ -51,7 +51,7 @@ def aggregate_completed_telemetry_minute(self, window_start: str | None = None) 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def purge_expired_telemetry(self) -> int:
-    """Enforce the approved 30-day local raw-telemetry retention period."""
+    """Delete raw telemetry older than the configured local retention period."""
 
     return purge_expired_events()
 

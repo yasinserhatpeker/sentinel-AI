@@ -61,9 +61,10 @@ function windowLabel(value: string | null) {
       <button class="secondary-button" :disabled="loading" type="button" @click="emit('refresh')">Yenile</button>
     </div>
 
-    <LoadingSkeleton v-if="loading" variant="overview" />
+    <div v-if="loading && overview" class="refresh-indicator" role="status">Sistem özeti güncelleniyor</div>
+    <LoadingSkeleton v-if="loading && !overview" variant="overview" />
     <p v-else-if="error" class="notice notice--error" role="alert">Sistem özeti alınamadı: {{ error }}.</p>
-    <p v-else-if="overview && !overview.services.length" class="notice">Henüz toplulaştırılmış Telemetry verisi bulunmuyor.</p>
+    <p v-else-if="overview && !overview.services.length" class="notice">Henüz sistem özetinde gösterilecek servis ölçümü bulunmuyor.</p>
 
     <template v-else-if="overview">
       <div class="grid overflow-hidden rounded-[10px] border border-[#d6e2dc] bg-white md:grid-cols-3 md:divide-x md:divide-[#e0e8e4]">
@@ -88,7 +89,7 @@ function windowLabel(value: string | null) {
         <div class="flex flex-wrap items-end justify-between gap-2 border-b border-[#dce6e1] px-5 py-4">
           <div>
             <h2 class="m-0 text-[17px] font-semibold text-[#203c33]">Mikroservisler</h2>
-            <p class="mt-1 mb-0 text-[11px] text-[#74877e]">Her satır ilgili metriğin en son tamamlanan gerçek ölçüm penceresini gösterir.</p>
+            <p class="mt-1 mb-0 text-[13px] leading-5 text-[#4f675d]">Her satır ilgili metriğin en son tamamlanan gerçek ölçüm penceresini gösterir.</p>
           </div>
           <span class="text-[11px] text-[#81928a]">{{ overview.services.length }} servis</span>
         </div>
@@ -131,7 +132,7 @@ function windowLabel(value: string | null) {
 
       <section v-if="dependencyServices.length" class="rounded-[10px] border border-[#d6e2dc] bg-[#f8faf9] px-5 py-4" aria-labelledby="service-flow-title">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <div><h2 id="service-flow-title" class="m-0 text-[14px] font-semibold text-[#29483d]">Servis akışı</h2><p class="mt-1 mb-0 text-[10px] text-[#7a8c84]">Siparişten raporlamaya uzanan bağımlılık sırası</p></div>
+          <div><h2 id="service-flow-title" class="m-0 text-[14px] font-semibold text-[#29483d]">Servis akışı</h2><p class="mt-1 mb-0 text-[12px] leading-5 text-[#4f675d]">Siparişten raporlamaya uzanan bağımlılık sırası</p></div>
           <div class="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#315749]"><template v-for="(service, index) in dependencyServices" :key="service"><span class="rounded-md border border-[#d2dfd8] bg-white px-3 py-2">{{ service }}</span><span v-if="index < dependencyServices.length - 1" aria-hidden="true" class="text-[#789087]">→</span></template></div>
         </div>
       </section>

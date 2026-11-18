@@ -135,6 +135,34 @@ class TelemetryIngestionTests(TestCase):
         self.assertEqual(deleted, 1)
         self.assertFalse(TelemetryEvent.objects.exists())
 
+    @override_settings(RAW_TELEMETRY_RETENTION_DAYS=1)
+    def test_retention_uses_configured_local_window(self) -> None:
+        self.post(self.payload())
+        expired = TelemetryEvent.objects.get()
+        TelemetryEvent.objects.filter(pk=expired.pk).update(ingested_at=timezone.now() - timedelta(days=2))
+        recent = TelemetryEvent.objects.create(
+            event_id=uuid4(),
+            schema_version="telemetry.v1",
+            observed_at=self.observed_at,
+            environment="local",
+            service="orders-api",
+            instance="orders-api-1",
+            deployment_id="compose-local",
+            trace_id="recent-trace",
+            metric_name="http.server.duration",
+            metric_value=25.0,
+            unit="ms",
+            dimensions={},
+            dimensions_fingerprint="recent-retention-event",
+        )
+        TelemetryEvent.objects.filter(pk=recent.pk).update(ingested_at=timezone.now() - timedelta(hours=12))
+
+        deleted = purge_expired_events()
+
+        self.assertEqual(deleted, 1)
+        self.assertFalse(TelemetryEvent.objects.filter(pk=expired.pk).exists())
+        self.assertTrue(TelemetryEvent.objects.filter(pk=recent.pk).exists())
+
     def test_scoped_aggregate_contract_does_not_expose_raw_events(self) -> None:
         window = self.observed_at.replace(second=0, microsecond=0)
         self.post(

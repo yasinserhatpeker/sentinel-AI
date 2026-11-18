@@ -6,6 +6,7 @@ import SelectField from "./components/SelectField.vue";
 import HomeDashboard from "./components/HomeDashboard.vue";
 import SystemOverview from "./components/SystemOverview.vue";
 import LoadingSkeleton from "./components/LoadingSkeleton.vue";
+import ModelEvaluation from "./components/ModelEvaluation.vue";
 import { dashboardState } from "./telemetry/dashboard-state";
 import { getAggregates, getServices, getSystemOverview } from "./telemetry/service";
 import type { MetricGroup, SystemOverviewResponse, TelemetryAggregateResponse, TelemetryPoint } from "./telemetry/types";
@@ -13,7 +14,7 @@ import { TelemetryApiError } from "./telemetry/types";
 import { initialiseCsrf, login, logout, refresh } from "./auth";
 import { demoServiceNames, runAllDemoServices, runDemoActivity, runDemoBatch, type DemoOperation, type DemoServiceName } from "./demo-activity";
 import { activateModel, createFaultExperiment, getAnomalies, getAnomaly, getEvaluations, getFaultExperiments, getModelReadiness, getModels, repeatFaultExperiment, stopFaultExperiment, trainLstmPrototype, trainModel } from "./analysis/service";
-import { activeFaults, faultRemainingSeconds, percentage, severityLabel } from "./analysis/state";
+import { activeFaults, detectorLabel, evidenceLabel, evidenceValue, faultRemainingSeconds, normalizedFaultDuration, reasonLabel, severityLabel } from "./analysis/state";
 import type { Anomaly, DetectorEvaluation, DetectorModel, FaultExperiment, LstmPrototypeResult, ModelReadinessResponse } from "./analysis/types";
 
 const token = ref("");
@@ -38,8 +39,18 @@ type WorkspaceView = "home" | "overview" | "service" | "anomalies" | "faults" | 
 const activeView = ref<WorkspaceView>("home");
 const analysisLoading = ref(false);
 const analysisError = ref("");
+const analysisLoaded = ref({ anomalies: false, faults: false, models: false });
 const anomalies = ref<Anomaly[]>([]);
 const selectedAnomaly = ref<Anomaly | null>(null);
+const anomalySeverityCounts = computed(() => ({
+  critical: anomalies.value.filter((item) => item.severity === "critical").length,
+  warning: anomalies.value.filter((item) => item.severity === "warning").length,
+  normal: anomalies.value.filter((item) => item.severity === "normal").length,
+}));
+const anomalyScoreDifference = computed(() => {
+  if (selectedAnomaly.value?.score === null || selectedAnomaly.value?.score === undefined || selectedAnomaly.value.threshold === null) return null;
+  return selectedAnomaly.value.score - selectedAnomaly.value.threshold;
+});
 const faultExperiments = ref<FaultExperiment[]>([]);
 const faultClock = ref(Date.now());
 let faultClockTimer: number | undefined;
@@ -47,12 +58,25 @@ const models = ref<DetectorModel[]>([]);
 const evaluations = ref<DetectorEvaluation[]>([]);
 const modelReadiness = ref<ModelReadinessResponse | null>(null);
 const lstmResult = ref<LstmPrototypeResult | null>(null);
-const isolationForestEvaluations = computed(() => evaluations.value.filter((item) => item.detector_type === "isolation_forest"));
-const baselineEvaluations = computed(() => evaluations.value.filter((item) => item.detector_type !== "isolation_forest"));
 const blockingFaultExperiments = computed(() => activeFaults(faultExperiments.value, faultClock.value));
+const blockingFault = computed(() => blockingFaultExperiments.value[0] ?? null);
+const analysisInitialLoading = computed(() => {
+  if (!analysisLoading.value) return false;
+  if (activeView.value === "anomalies") return !analysisLoaded.value.anomalies;
+  if (activeView.value === "faults") return !analysisLoaded.value.faults;
+  if (activeView.value === "models") return !analysisLoaded.value.models;
+  return false;
+});
 const faultType = ref("high_latency");
-const faultDuration = ref(60);
+const faultDuration = ref<number | string>(60);
 const faultValue = ref(750);
+const faultDurationError = computed(() => normalizedFaultDuration(faultDuration.value) === null ? "Süre 15–600 arasında tam sayı olmalıdır." : "");
+const faultTypeHelp = computed(() => ({
+  high_latency: "Servis yanıtlarını belirlediğiniz süre kadar yavaşlatır.",
+  error_burst: "İsteklerin belirlediğiniz oran kadarının hata vermesini sağlar.",
+  database_slowdown: "Database sorgularına kontrollü gecikme ekler.",
+  queue_backlog: "Worker’ın işleme hızını düşürerek Queue içinde iş biriktirir.",
+} as Record<string, string>)[faultType.value] ?? "");
 const navigationItems: Array<{ view: WorkspaceView; label: string; group: "Genel" | "Analiz" }> = [
   { view: "home", label: "Ana sayfa", group: "Genel" },
   { view: "overview", label: "Sistem özeti", group: "Genel" },
@@ -97,6 +121,7 @@ function analysisErrorMessage(code: string) {
     lstm_minimum_sequences_not_met: "LSTM prototipi için en az 60 geçerli dizi gerekiyor",
     lstm_split_incomplete: "Kronolojik eğitim, doğrulama ve test ayrımları henüz tamamlanmadı",
     validation_failed: "Gönderilen analiz parametreleri geçerli değil",
+    fault_duration_invalid: "Deney süresi 15–600 saniye arasında tam sayı olmalıdır",
     fault_experiment_conflict: "Bu serviste aktif veya recovery döneminde bir fault bulunuyor",
     request_failed: "Analiz servisine ulaşılamadı",
   } as Record<string, string>)[code] ?? code;
@@ -179,8 +204,8 @@ const queuedWorkCount = computed(() => metricEventTotal("queue.enqueue_rate"));
 const completedWorkCount = computed(() => metricEventTotal("queue.dequeue_rate"));
 const failedWorkCount = computed(() => metricEventTotal("queue.failed_task_count"));
 const queueStateDescription = computed(() => {
-  if (queueDepth.value === null) return "Bu servis için seçili zaman aralığında Queue Telemetry verisi oluşmadı.";
-  if (queueDepth.value > 0) return `${queueDepth.value} iş worker tarafından bekleniyor; worker çalıştıkça bu değer azalır.`;
+  if (queueDepth.value === null) return "Bu servis için seçili zaman aralığında Queue ölçümü bulunmuyor.";
+  if (queueDepth.value > 0) return `${queueDepth.value} iş worker tarafından işlenmeyi bekliyor. Worker işleri tamamladıkça bu sayı azalır.`;
   if (completedWorkCount.value > 0) return "Bekleyen iş yok. Worker bu zaman aralığında aldığı işleri tamamladı.";
   return "Bekleyen iş yok. Yeni bir kayıt oluşturulduğunda Queue akışı burada görünür.";
 });
@@ -222,7 +247,7 @@ async function loadAnomalies() {
   analysisLoading.value = true; analysisError.value = ""; selectedAnomaly.value = null;
   try { anomalies.value = (await withFreshAccess((accessToken) => getAnomalies(accessToken, analysisScope()))).results; }
   catch (error) { anomalies.value = []; analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; }
-  finally { analysisLoading.value = false; }
+  finally { analysisLoaded.value.anomalies = true; analysisLoading.value = false; }
 }
 async function openAnomaly(id: string) {
   analysisLoading.value = true;
@@ -235,15 +260,20 @@ async function loadFaults() {
   analysisLoading.value = true; analysisError.value = "";
   try { faultExperiments.value = (await withFreshAccess((accessToken) => getFaultExperiments(accessToken, analysisScope()))).results; }
   catch (error) { faultExperiments.value = []; analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; }
-  finally { analysisLoading.value = false; }
+  finally { analysisLoaded.value.faults = true; analysisLoading.value = false; }
 }
 function faultParameters() {
   return faultType.value === "error_burst" ? { error_probability: Math.min(1, Math.max(0.05, faultValue.value / 100)) } : { delay_ms: faultValue.value };
 }
 async function createFault() {
+  const duration = normalizedFaultDuration(faultDuration.value);
+  if (duration === null) {
+    analysisError.value = "fault_duration_invalid";
+    return;
+  }
   analysisLoading.value = true; analysisError.value = "";
   try {
-    await withFreshAccess((accessToken) => createFaultExperiment(accessToken, { environment: "local", service: selectedService.value, fault_type: faultType.value, duration_seconds: faultDuration.value, parameters: faultParameters(), seed: 42 }));
+    await withFreshAccess((accessToken) => createFaultExperiment(accessToken, { environment: "local", service: selectedService.value, fault_type: faultType.value, duration_seconds: duration, parameters: faultParameters(), seed: 42 }));
     await loadFaults(); await loadSystemOverview();
   } catch (error) { analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; analysisLoading.value = false; }
 }
@@ -254,16 +284,17 @@ async function loadModelsAndEvaluations() {
   analysisLoading.value = true; analysisError.value = "";
   try { const [modelResponse, evaluationResponse, readinessResponse] = await Promise.all([withFreshAccess((accessToken) => getModels(accessToken, analysisScope())), withFreshAccess((accessToken) => getEvaluations(accessToken, analysisScope())), withFreshAccess((accessToken) => getModelReadiness(accessToken, analysisScope()))]); models.value = modelResponse.results; evaluations.value = evaluationResponse.results; modelReadiness.value = readinessResponse; }
   catch (error) { models.value = []; evaluations.value = []; modelReadiness.value = null; analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; }
-  finally { analysisLoading.value = false; }
+  finally { analysisLoaded.value.models = true; analysisLoading.value = false; }
 }
 async function trainIsolationForest() { analysisLoading.value = true; analysisError.value = ""; try { await withFreshAccess((accessToken) => trainModel(accessToken, { ...scope(), minimum_samples: 50, contamination: 0.05, random_state: 42 })); await loadModelsAndEvaluations(); } catch (error) { analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; analysisLoading.value = false; } }
 async function activateIsolationForest(id: string) { analysisLoading.value = true; try { await withFreshAccess((accessToken) => activateModel(accessToken, id)); await loadModelsAndEvaluations(); } catch (error) { analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; analysisLoading.value = false; } }
 async function runLstmPrototype() { analysisLoading.value = true; analysisError.value = ""; try { lstmResult.value = await withFreshAccess((accessToken) => trainLstmPrototype(accessToken, { ...scope(), minimum_sequences: 60, sequence_length: 12, epochs: 25, seed: 42 })); await loadModelsAndEvaluations(); } catch (error) { lstmResult.value = null; analysisError.value = error instanceof TelemetryApiError ? error.code : "request_failed"; analysisLoading.value = false; } }
 async function switchView(view: WorkspaceView) {
+  const viewChanged = activeView.value !== view;
   activeView.value = view;
   if (view === "models" && range.value !== "24h") range.value = "24h";
   await nextTick();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (viewChanged) window.scrollTo({ top: 0, behavior: "smooth" });
   if (view === "home" || view === "overview") await loadSystemOverview();
   if (view === "service") await loadDashboard();
   if (view === "anomalies") await loadAnomalies();
@@ -304,7 +335,7 @@ async function runRealActivity(operation: DemoOperation) {
     services.value = discovered.services;
     await loadDashboard();
     activityResult.value = { requested: result.requestedCount, successful: result.createdCount, failed: result.failedCount, requestCount: result.requestCount };
-    activityMessage.value = `${result.methods} tamamlandı. ${result.createdCount} kayıt başarıyla oluşturuldu; gösterge paneli güncellendi.`;
+    activityMessage.value = `${result.methods} tamamlandı. ${result.createdCount} kayıt başarıyla oluşturuldu. Gösterge paneli güncellendi.`;
   } catch (error) {
     activityMessage.value = error instanceof Error ? `Demo isteği başarısız: ${error.message}` : "Demo isteği başarısız.";
   } finally {
@@ -490,27 +521,103 @@ onBeforeUnmount(() => {
           <button class="secondary-button" :disabled="analysisLoading" @click="switchView(activeView)">Yenile</button>
         </section>
         <p v-if="analysisError && activeView !== 'service'" class="notice notice--error" role="alert">{{ analysisErrorMessage(analysisError) }}.</p>
-        <LoadingSkeleton v-if="analysisLoading && activeView !== 'service'" variant="analysis" />
+        <div v-if="analysisLoading && !analysisInitialLoading && activeView !== 'service'" class="refresh-indicator" role="status">Veriler güncelleniyor</div>
+        <LoadingSkeleton v-if="analysisInitialLoading && activeView !== 'service'" variant="analysis" />
 
-        <section v-if="activeView === 'anomalies' && !analysisLoading" class="analysis-grid">
-          <article class="panel analysis-list"><header><div><p class="eyebrow">ANOMALY KAYITLARI</p><h2>Detector kararları</h2></div><span>{{ anomalies.length }} kayıt</span></header><p v-if="!anomalies.length" class="notice">Seçili kapsam içinde anomaly bulunamadı.</p><button v-for="item in anomalies" :key="item.id" class="record-row" @click="openAnomaly(item.id)"><span><strong>{{ item.service }}</strong><small>{{ new Date(item.window_start).toLocaleString('tr-TR') }} · {{ item.detector_type }}</small></span><span class="status-chip" :class="`status-chip--${item.severity}`">{{ severityLabel(item.severity) }} · {{ item.score?.toFixed(3) ?? '—' }}</span></button></article>
-          <article class="panel"><header><div><p class="eyebrow">KANITLAR</p><h2>Anomaly detayı</h2></div><span>{{ selectedAnomaly?.model_version ?? selectedAnomaly?.detector_version ?? '—' }}</span></header><p v-if="!selectedAnomaly" class="notice">Kanıtları görmek için bir anomaly kaydı seçin.</p><template v-else><dl class="detail-list"><div><dt>Detector</dt><dd>{{ selectedAnomaly.detector_type }} · {{ selectedAnomaly.detector_version }}</dd></div><div><dt>Normalize skor / eşik</dt><dd>{{ selectedAnomaly.score?.toFixed(4) ?? '—' }} / {{ selectedAnomaly.threshold?.toFixed(4) ?? '—' }}</dd></div><div><dt>Ham skor / eşik</dt><dd>{{ selectedAnomaly.raw_score?.toFixed(4) ?? '—' }} / {{ selectedAnomaly.raw_threshold?.toFixed(4) ?? '—' }}</dd></div><div><dt>Nedenler</dt><dd>{{ selectedAnomaly.reasons.join(', ') || '—' }}</dd></div></dl><div class="evidence-grid"><div v-for="(value,key) in selectedAnomaly.evidence" :key="key"><span>{{ key }}</span><strong>{{ value ?? '—' }}</strong></div></div></template></article>
+        <section v-if="activeView === 'anomalies' && !analysisInitialLoading" class="analysis-grid" :aria-busy="analysisLoading">
+          <article class="panel analysis-list">
+            <header class="analysis-panel-header">
+              <div><h2>Anomaly kayıtları</h2><p>Detector tarafından normal dışı bulunan beş dakikalık ölçüm dönemleri.</p></div>
+              <span>{{ anomalies.length }} kayıt</span>
+            </header>
+            <div v-if="anomalies.length" class="anomaly-summary" aria-label="Anomaly önem dağılımı">
+              <span><strong>{{ anomalySeverityCounts.critical }}</strong> kritik</span>
+              <span><strong>{{ anomalySeverityCounts.warning }}</strong> uyarı</span>
+              <span><strong>{{ anomalySeverityCounts.normal }}</strong> normal</span>
+            </div>
+            <p v-if="!anomalies.length" class="empty-state">Bu kapsamda anomaly kararı bulunmuyor. Servisi veya zaman aralığını değiştirerek yeniden deneyebilirsiniz.</p>
+            <button v-for="item in anomalies" :key="item.id" class="record-row anomaly-record" :class="{ 'record-row--selected': selectedAnomaly?.id === item.id }" :aria-pressed="selectedAnomaly?.id === item.id" @click="openAnomaly(item.id)">
+              <span class="anomaly-record-main">
+                <strong>{{ item.service }}</strong>
+                <small>{{ new Date(item.window_start).toLocaleString('tr-TR') }}</small>
+                <small>{{ detectorLabel(item.detector_type) }}<template v-if="item.reasons.length"> · {{ item.reasons.map(reasonLabel).join(' ') }}</template></small>
+              </span>
+              <span class="status-chip" :class="`status-chip--${item.severity}`">{{ severityLabel(item.severity) }} · {{ item.score?.toFixed(3) ?? '—' }}</span>
+            </button>
+          </article>
+          <article class="panel anomaly-detail-panel">
+            <header class="analysis-panel-header">
+              <div><h2>Kayıt ayrıntısı</h2><p>Bu kararın neden verildiğini score, threshold ve gerçek servis ölçümleriyle inceleyin.</p></div>
+              <span v-if="selectedAnomaly">{{ detectorLabel(selectedAnomaly.detector_type) }}</span>
+            </header>
+            <p v-if="!selectedAnomaly" class="empty-state">Ayrıntılarını ve karar kanıtlarını incelemek için soldan bir anomaly kaydı seçin.</p>
+            <template v-else>
+              <div class="anomaly-decision" :class="`anomaly-decision--${selectedAnomaly.severity}`">
+                <div><span>Karar</span><strong>{{ severityLabel(selectedAnomaly.severity) }} anomaly</strong></div>
+                <p v-if="anomalyScoreDifference !== null">Normalize score, karar threshold değerinin <strong>{{ Math.abs(anomalyScoreDifference).toFixed(3) }}</strong> {{ anomalyScoreDifference >= 0 ? 'üzerinde' : 'altında' }}.</p>
+              </div>
+              <dl class="detail-list anomaly-detail-list">
+                <div><dt>Servis ve ölçüm dönemi</dt><dd>{{ selectedAnomaly.service }}<small>{{ new Date(selectedAnomaly.window_start).toLocaleString('tr-TR') }}</small></dd></div>
+                <div><dt>Detector</dt><dd>{{ detectorLabel(selectedAnomaly.detector_type) }}<small>{{ selectedAnomaly.detector_version }}</small></dd></div>
+                <div><dt>Normalize score / threshold</dt><dd>{{ selectedAnomaly.score?.toFixed(4) ?? '—' }} / {{ selectedAnomaly.threshold?.toFixed(4) ?? '—' }}</dd></div>
+                <div><dt>Ham score / threshold</dt><dd>{{ selectedAnomaly.raw_score?.toFixed(4) ?? '—' }} / {{ selectedAnomaly.raw_threshold?.toFixed(4) ?? '—' }}</dd></div>
+              </dl>
+              <section class="decision-reasons">
+                <h3>Bu karar neden oluştu?</h3>
+                <p v-if="!selectedAnomaly.reasons.length">Detector bu kayıt için ek bir neden açıklaması üretmedi.</p>
+                <ul v-else><li v-for="reason in selectedAnomaly.reasons" :key="reason">{{ reasonLabel(reason) }}</li></ul>
+              </section>
+              <section class="evidence-section">
+                <h3>Telemetry kanıtları</h3>
+                <p>Kararın verildiği beş dakikalık dönemde servisten alınan gerçek ölçümler.</p>
+                <div class="evidence-grid"><div v-for="(value,key) in selectedAnomaly.evidence" :key="key"><span>{{ evidenceLabel(String(key)) }}</span><strong>{{ evidenceValue(String(key), value) }}</strong></div></div>
+              </section>
+            </template>
+          </article>
         </section>
 
-        <section v-if="activeView === 'faults' && !analysisLoading" class="grid gap-4">
-          <p v-if="blockingFaultExperiments.length" class="notice notice--warning" role="alert"><strong>Aktif fault:</strong> {{ blockingFaultExperiments.map((item) => `${item.service} · ${faultTypeLabel(item.fault_type)} · ${statusLabel(item.status)} · ${faultCountdownLabel(item)}`).join(', ') }}</p>
-          <article class="panel"><header><div><p class="eyebrow">KONTROLLÜ FAULT</p><h2>Yeni yerel deney</h2></div><span>süper yönetici</span></header><p class="panel-description">Fault yalnızca izinli listedeki yerel demo servisinde çalışır. Fault bittikten sonra iki dakikalık recovery dönemi uygulanır; aynı serviste yeni deney bu sayaç bitince başlatılabilir.</p><div class="form-grid"><label>Fault türü<select v-model="faultType"><option value="high_latency">Yüksek gecikme</option><option value="error_burst">Hata patlaması</option><option value="database_slowdown">Veritabanı yavaşlaması</option><option value="queue_backlog">Queue birikmesi</option></select></label><label>Süre (sn)<input v-model.number="faultDuration" type="number" min="15" max="600" /></label><label>{{ faultType === 'error_burst' ? 'Hata olasılığı (%)' : 'Gecikme (ms)' }}<input v-model.number="faultValue" type="number" :min="faultType === 'error_burst' ? 5 : 50" :max="faultType === 'error_burst' ? 100 : 5000" /></label><button class="primary-button" :disabled="analysisLoading || Boolean(blockingFaultExperiments.length)" @click="createFault">Deneyi başlat</button></div></article>
-          <article class="panel"><header><div><p class="eyebrow">DENEY GEÇMİŞİ</p><h2>Fault geçmişi</h2></div><span>{{ faultExperiments.length }} kayıt</span></header><p v-if="!faultExperiments.length" class="notice">Bu kapsam için fault deneyi bulunmuyor.</p><div v-for="item in faultExperiments" :key="item.id" class="table-row"><span><strong>{{ faultTypeLabel(item.fault_type) }}</strong><small>{{ item.service }} · {{ item.duration_seconds }} sn · rastgelelik tohumu {{ item.seed }}</small></span><span class="status-chip">{{ statusLabel(item.status) }}<template v-if="faultCountdownLabel(item)"> · {{ faultCountdownLabel(item) }}</template></span><div class="row-actions"><button v-if="['pending','active'].includes(item.status)" @click="stopFault(item.id)">Durdur</button><button v-if="['completed','stopped','failed'].includes(item.status)" @click="repeatFault(item.id)">Tekrarla</button></div></div></article>
+        <section v-if="activeView === 'faults' && !analysisInitialLoading" class="fault-workspace" :aria-busy="analysisLoading">
+          <div v-if="blockingFault" class="fault-current" role="status">
+            <div>
+              <span>{{ blockingFault.status === 'recovering' ? 'Servis toparlanıyor' : 'Deney çalışıyor' }}</span>
+              <strong>{{ blockingFault.service }} · {{ faultTypeLabel(blockingFault.fault_type) }}</strong>
+              <p>{{ blockingFault.status === 'recovering' ? 'Yeni bir deney başlatmadan önce servisin normal duruma dönmesi bekleniyor.' : 'Kontrollü fault şu anda seçili servise uygulanıyor.' }}</p>
+            </div>
+            <b>{{ faultCountdownLabel(blockingFault) }}</b>
+          </div>
+          <article class="panel fault-create-panel">
+            <header><div><h2>Yeni fault deneyi</h2><p>Yerel serviste kontrollü bir sorun oluşturun ve Detector’ın tepkisini ölçün.</p></div></header>
+            <div class="fault-type-help"><strong>{{ faultTypeLabel(faultType) }}</strong><span>{{ faultTypeHelp }}</span></div>
+            <div class="fault-form">
+              <label>Fault türü<SelectField :model-value="faultType" :options="[{ label: 'Yüksek gecikme', value: 'high_latency' }, { label: 'Hata patlaması', value: 'error_burst' }, { label: 'Database yavaşlaması', value: 'database_slowdown' }, { label: 'Queue birikmesi', value: 'queue_backlog' }]" @update:model-value="faultType = $event" /></label>
+              <label>Süre <span>15–600 saniye</span><input v-model.number="faultDuration" type="number" min="15" max="600" step="1" :aria-invalid="Boolean(faultDurationError)" aria-describedby="fault-duration-error" /><small v-if="faultDurationError" id="fault-duration-error" class="fault-field-error">{{ faultDurationError }}</small></label>
+              <label>{{ faultType === 'error_burst' ? 'Hata oranı' : 'Eklenecek gecikme' }} <span>{{ faultType === 'error_burst' ? 'yüzde' : 'milisaniye' }}</span><input v-model.number="faultValue" type="number" :min="faultType === 'error_burst' ? 5 : 50" :max="faultType === 'error_burst' ? 100 : 5000" /></label>
+              <button class="primary-button fault-start-button" :disabled="analysisLoading || Boolean(blockingFault) || Boolean(faultDurationError)" @click="createFault">{{ blockingFault ? 'Toparlanma bekleniyor' : 'Deneyi başlat' }}</button>
+            </div>
+            <p class="fault-safety-note">Deney belirlenen süre sonunda otomatik durur. Ardından servis için iki dakikalık toparlanma süresi başlar.</p>
+          </article>
+          <article class="panel fault-history">
+            <header><div><h2>Geçmiş deneyler</h2><p>Seçili servis için başlatılan fault deneyleri ve son durumları.</p></div><span>{{ faultExperiments.length }} kayıt</span></header>
+            <p v-if="!faultExperiments.length" class="empty-state">Seçili servis ve zaman aralığında fault deneyi bulunmuyor.</p>
+            <div v-for="item in faultExperiments" :key="item.id" class="fault-history-row">
+              <span><strong>{{ faultTypeLabel(item.fault_type) }}</strong><small>{{ item.service }} · {{ item.duration_seconds }} sn · {{ new Date(item.created_at).toLocaleString('tr-TR') }}</small></span>
+              <span class="status-chip">{{ statusLabel(item.status) }}<template v-if="faultCountdownLabel(item)"> · {{ faultCountdownLabel(item) }}</template></span>
+              <div class="row-actions"><button v-if="['pending','active'].includes(item.status)" @click="stopFault(item.id)">Durdur</button><button v-if="['completed','stopped','failed'].includes(item.status)" @click="repeatFault(item.id)">Tekrarla</button></div>
+            </div>
+          </article>
         </section>
 
-        <section v-if="activeView === 'models' && !analysisLoading" class="grid gap-4">
-          <article class="panel"><header><div><p class="eyebrow">VERİ HAZIRLIĞI</p><h2>Gerçek model verisi</h2></div><span>{{ statusLabel(modelReadiness?.status ?? 'veri yok') }}</span></header><p v-if="!modelReadiness" class="notice">Seçili kapsam için veri hazırlığı bilgisi bulunmuyor.</p><template v-else><p class="panel-description">Bu değerler yalnızca tamamlanmış gerçek `features.v2` pencerelerinden hesaplanır; eksik zamanlar veya yapay kayıtlar hazır sayılmaz.</p><div class="summary-grid !my-4"><article class="metric-card"><p>Feature örnekleri</p><strong>{{ modelReadiness.feature_sample_count }}</strong><span>Isolation Forest için uygun: {{ modelReadiness.eligible_isolation_forest_sample_count }} / {{ modelReadiness.isolation_forest_minimum_samples }}</span></article><article class="metric-card"><p>Kesintisiz window</p><strong>{{ modelReadiness.longest_contiguous_window_count }}</strong><span>dizi boşluğu: {{ modelReadiness.sequence_gap_count }}</span></article><article class="metric-card"><p>LSTM dizileri</p><strong>{{ modelReadiness.candidate_sequence_count }}</strong><span>en az {{ modelReadiness.lstm_minimum_sequences }}</span></article><article class="metric-card"><p>Tahmini kalan süre</p><strong>{{ modelReadiness.estimated_minutes_remaining_for_lstm }} dk</strong><span>{{ modelReadiness.windows_remaining_for_lstm }} tamamlanmış window</span></article></div><p class="notice" :class="{ 'notice--warning': !modelReadiness.isolation_forest_ready }">Isolation Forest: {{ modelReadiness.isolation_forest_ready ? 'hazır' : 'veri toplanıyor' }} · LSTM: {{ modelReadiness.lstm_ready ? 'hazır' : 'veri toplanıyor' }}</p></template></article>
-          <article class="panel"><header><div><p class="eyebrow">ISOLATION FOREST</p><h2>Model yaşam döngüsü</h2></div><button class="primary-button" :disabled="!modelReadiness?.isolation_forest_ready" @click="trainIsolationForest">Seçili kapsamla eğit</button></header><p class="panel-description">Eğitim, zaman sıralı normal `features.v2` satırlarını kullanır ve en az 50 örnek gerektirir.</p><p v-if="!modelReadiness?.isolation_forest_ready" class="notice notice--warning">En az 50 uygun normal örnek oluşana kadar eğitim kilitlidir.</p><p v-if="!models.length" class="notice">Bu servis için model bulunmuyor.</p><div v-for="model in models" :key="model.id" class="table-row"><span><strong>{{ model.model_version }}</strong><small>{{ model.sample_count }} örnek · {{ model.feature_count }} feature · {{ model.detector_version }}</small></span><span class="status-chip" :class="{ 'status-chip--normal': model.status === 'active' }">{{ statusLabel(model.status) }}</span><button v-if="model.status === 'trained'" @click="activateIsolationForest(model.id)">Aktif et</button></div></article>
-          <article class="panel"><header><div><p class="eyebrow">ÇEVRİMDIŞI LSTM PROTOTİPİ</p><h2>Dizi değerlendirmesi</h2></div><button class="primary-button" :disabled="!modelReadiness?.lstm_ready" @click="runLstmPrototype">Prototipi çalıştır</button></header><p class="panel-description">12 window içeren kronolojik eğitim, doğrulama ve test ayrımı kullanır. Sonuç yalnızca çevrimdışı değerlendirmedir; canlı detector olarak otomatik etkinleştirilmez.</p><p v-if="!modelReadiness?.lstm_ready" class="notice notice--warning">En az 60 geçerli dizi oluşana kadar çalışma kilitlidir.</p><dl v-if="lstmResult" class="detail-list"><div><dt>Veri ayrımı</dt><dd>{{ lstmResult.train_samples }} eğitim · {{ lstmResult.validation_samples }} doğrulama · {{ lstmResult.test_samples }} test</dd></div><div><dt>Doğrulama doğruluğu</dt><dd>{{ percentage(lstmResult.validation_accuracy) }}</dd></div><div><dt>Test doğruluğu</dt><dd>{{ percentage(lstmResult.test_accuracy) }}</dd></div><div><dt>Etkinleştirme</dt><dd>Yok — çevrimdışı prototip</dd></div></dl></article>
-          <article class="panel"><header><div><p class="eyebrow">MODEL EĞİTİM SKORLARI</p><h2>Isolation Forest eğitim sonuçları</h2></div><span>{{ models.length }} model</span></header><p class="panel-description">Isolation Forest gözetimsiz çalışır; bu alan doğruluğu değil, eğitim verisindeki aykırı değer oranını ve ham anomaly skoru dağılımını gösterir. Yüksek skor, anomaly davranışına daha yakın bir örneği belirtir.</p><p v-if="!models.length" class="notice">Seçili servis için eğitim sonucu bulunmuyor.</p><div v-for="model in models" :key="`training-${model.id}`" class="evaluation-row"><div><strong>{{ model.model_version }}</strong><small>{{ statusLabel(model.status) }} · {{ new Date(model.trained_from).toLocaleString('tr-TR') }} — {{ new Date(model.trained_until).toLocaleString('tr-TR') }}</small></div><dl v-if="model.configuration.training_diagnostics" class="training-score-grid"><div><dt>Eğitim örneği</dt><dd>{{ model.sample_count }}</dd></div><div><dt>Feature</dt><dd>{{ model.feature_count }}</dd></div><div><dt>Tahmin edilen aykırı değer</dt><dd>{{ model.configuration.training_diagnostics.predicted_anomaly_count }} · {{ percentage(model.configuration.training_diagnostics.predicted_anomaly_rate) }}</dd></div><div><dt>Ortalama skor</dt><dd>{{ model.configuration.training_diagnostics.score_mean.toFixed(4) }}</dd></div><div><dt>p95 skoru</dt><dd>{{ model.configuration.training_diagnostics.score_p95.toFixed(4) }}</dd></div><div><dt>En yüksek skor</dt><dd>{{ model.configuration.training_diagnostics.score_max.toFixed(4) }}</dd></div></dl><p v-else class="notice notice--warning">Bu eski model için eğitim tanıları henüz oluşturulmadı.</p></div></article>
-          <article class="panel"><header><div><p class="eyebrow">ISOLATION FOREST DOĞRULUĞU</p><h2>Gerçek fault doğruluk sonuçları</h2></div><span>{{ isolationForestEvaluations.length }} değerlendirme</span></header><p class="panel-description">Bu skorlar yalnızca aktif modelin canlı karar kayıtları ile kontrollü fault ground truth verisi karşılaştırılarak hesaplanır.</p><p v-if="!isolationForestEvaluations.length" class="notice notice--warning">Aktif modelden sonra tamamlanmış ve skorlanmış kontrollü bir fault deneyi bekleniyor.</p><div v-for="item in isolationForestEvaluations" :key="item.id" class="evaluation-row"><div><strong>{{ item.model_version }}</strong><small>{{ item.detector_type }} · {{ item.detector_version }}</small></div><dl><div><dt>Precision</dt><dd>{{ percentage(item.precision) }}</dd></div><div><dt>Recall</dt><dd>{{ percentage(item.recall) }}</dd></div><div><dt>F1-score</dt><dd>{{ percentage(item.f1_score) }}</dd></div><div><dt>Yanlış pozitif oranı</dt><dd>{{ percentage(item.false_positive_rate) }}</dd></div><div><dt>Tespit gecikmesi</dt><dd>{{ item.detection_delay_seconds ?? '—' }} sn</dd></div></dl><p class="confusion-line">Karmaşıklık matrisi · TP {{ item.confusion.true_positive }} · FP {{ item.confusion.false_positive }} · TN {{ item.confusion.true_negative }} · FN {{ item.confusion.false_negative }}</p></div></article>
-          <article class="panel"><header><div><p class="eyebrow">BASELINE DEĞERLENDİRMESİ</p><h2>Static Threshold ve Median/MAD</h2></div><span>{{ baselineEvaluations.length }} değerlendirme</span></header><p class="panel-description">Aynı ground truth üzerindeki açıklanabilir baseline sonuçları, Isolation Forest ile karşılaştırma için korunur.</p><p v-if="!baselineEvaluations.length" class="notice">Tamamlanmış deney için baseline değerlendirme sonucu bulunmuyor.</p><div v-for="item in baselineEvaluations" :key="item.id" class="evaluation-row"><div><strong>{{ item.detector_type }} · {{ item.detector_version }}</strong><small>{{ item.configuration_version }}</small></div><dl><div><dt>Precision</dt><dd>{{ percentage(item.precision) }}</dd></div><div><dt>Recall</dt><dd>{{ percentage(item.recall) }}</dd></div><div><dt>F1-score</dt><dd>{{ percentage(item.f1_score) }}</dd></div><div><dt>Yanlış pozitif oranı</dt><dd>{{ percentage(item.false_positive_rate) }}</dd></div><div><dt>Tespit gecikmesi</dt><dd>{{ item.detection_delay_seconds ?? '—' }} sn</dd></div></dl></div></article>
-        </section>
+        <ModelEvaluation
+          v-if="activeView === 'models' && !analysisInitialLoading"
+          :models="models"
+          :evaluations="evaluations"
+          :readiness="modelReadiness"
+          :lstm-result="lstmResult"
+          :loading="analysisLoading"
+          @train-model="trainIsolationForest"
+          @activate-model="activateIsolationForest"
+          @run-lstm="runLstmPrototype"
+        />
 
         <template v-if="activeView === 'service'">
         <section class="scope-bar" aria-label="Gösterge paneli kapsamı">
@@ -522,7 +629,7 @@ onBeforeUnmount(() => {
 
         <section class="mb-[18px] overflow-hidden rounded-[12px] border border-[#d6e2dc] bg-[#fbfcfb] shadow-[0_6px_16px_rgba(12,57,43,.045)]" aria-label="Gerçek servis trafiği">
           <div class="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(240px,.72fr)_minmax(0,1.28fr)] lg:items-center">
-            <div><h2 class="m-0 text-[15px] font-semibold text-[#203c33]">Tüm servisler</h2><p class="mt-1 mb-0 max-w-[520px] text-[11px] leading-5 text-[#70837a]">Bütün demo servislerine paralel gerçek istek gönderin veya mevcut sipariş bağımlılık akışını başlatın.</p></div>
+            <div><h2 class="m-0 text-[15px] font-semibold text-[#203c33]">Tüm servisler</h2><p class="mt-1 mb-0 max-w-[520px] text-[13px] leading-5 text-[#4f675d]">Bütün demo servislerine paralel gerçek istek gönderin veya mevcut sipariş bağımlılık akışını başlatın.</p></div>
             <div class="flex flex-wrap gap-2 lg:justify-end">
               <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity" @click="runDependencyWorkflow">Sipariş akışını çalıştır</button>
               <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity" @click="runAllServicesActivity(1)">1 istek / servis</button>
@@ -531,7 +638,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="grid gap-4 border-t border-[#e0e8e4] px-5 py-4 lg:grid-cols-[minmax(240px,.72fr)_minmax(0,1.28fr)] lg:items-center">
-            <div><div class="flex flex-wrap items-center gap-2"><h2 class="m-0 text-[15px] font-semibold text-[#203c33]">Seçili servis</h2><span class="rounded bg-[#edf3f0] px-2 py-1 text-[10px] font-semibold text-[#47685b]">{{ selectedService || 'Servis seçilmedi' }}</span></div><p class="mt-1 mb-0 text-[11px] leading-5 text-[#70837a]">CRUD işlemleri yalnızca yukarıdaki seçimde bulunan servis üzerinde çalışır.</p></div>
+            <div><div class="flex flex-wrap items-center gap-2"><h2 class="m-0 text-[15px] font-semibold text-[#203c33]">Seçili servis</h2><span class="rounded bg-[#edf3f0] px-2 py-1 text-[10px] font-semibold text-[#47685b]">{{ selectedService || 'Servis seçilmedi' }}</span></div><p class="mt-1 mb-0 text-[13px] leading-5 text-[#4f675d]">CRUD işlemleri yalnızca yukarıdaki seçimde bulunan servis üzerinde çalışır.</p></div>
             <div class="flex flex-wrap gap-2 lg:justify-end">
               <button class="min-h-[38px] rounded-md border border-sentinel-primary bg-sentinel-primary px-3.5 text-[11px] font-semibold text-white hover:bg-[#0e5b42] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runRealActivity('create')">Kayıt oluştur</button>
               <button class="min-h-[38px] rounded-md border border-[#7f9b8f] bg-white px-3.5 text-[11px] font-semibold text-[#245b47] hover:bg-[#f0f6f2] disabled:cursor-wait disabled:opacity-55" :disabled="generatingActivity || !selectedServiceSupportsActivity" @click="runBatchActivity(10)">10 kayıt</button>
@@ -550,25 +657,26 @@ onBeforeUnmount(() => {
           <p v-if="activityMessage" class="m-0 border-t border-[#e0e8e4] bg-[#eef5f1] px-5 py-3 text-[12px] font-medium text-[#315b4c]" role="status">{{ activityMessage }}</p>
         </section>
 
+        <div v-if="loading && response" class="refresh-indicator" role="status">Servis ölçümleri güncelleniyor</div>
         <p v-if="viewState === 'error'" class="notice notice--error" role="alert">Gösterge paneli isteği başarısız: {{ errorCode }}.</p>
-        <LoadingSkeleton v-else-if="viewState === 'loading'" variant="service" />
+        <LoadingSkeleton v-else-if="viewState === 'loading' && !response" variant="service" />
         <p v-else-if="viewState === 'empty-services'" class="notice">Henüz yerel bir servis bulunmuyor. Yerel demo Telemetry verisini üretip tekrar deneyin.</p>
         <template v-else-if="hasData">
           <p v-if="viewState === 'partial'" class="notice notice--warning" role="status">Kısmi veri: {{ partialGroups.join(", ") }} metrikleri bu kapsam için kullanılamıyor.</p>
           <section class="summary-grid" aria-label="Seçili servis özeti">
-            <article class="metric-card"><p>Son window istekleri</p><strong>{{ latestSampleCount("http.server.request_count") }}</strong><span>en güncel bir dakikalık Telemetry window’undaki HTTP istekleri</span></article>
+            <article class="metric-card"><p>Son ölçümdeki istekler</p><strong>{{ latestSampleCount("http.server.request_count") }}</strong><span>en güncel bir dakikalık dönemde tamamlanan HTTP istekleri</span></article>
             <article class="metric-card"><p>Hata oranı</p><strong>{{ latest("http.server.error_rate", "last") }}%</strong><span>HTTP isteklerinin başarısızlık oranı</span></article>
             <article class="metric-card"><p>p95 gecikme</p><strong>{{ latest("http.server.duration", "p95") }} ms</strong><span>isteklerin %95’i bu süreden hızlı</span></article>
             <article class="metric-card"><p>Queue derinliği</p><strong>{{ latestWhole("queue.depth") }}</strong><span>worker tarafından bekleyen gerçek iş sayısı</span></article>
           </section>
           <section class="chart-grid" aria-label="Metrik eğilimleri">
-            <article class="panel"><header><div><p class="eyebrow">HTTP</p><h2>Trafik ve gecikme</h2></div><span>p50 / p95 / p99</span></header><p class="panel-description">Gecikme, bir isteğin servis tarafından tamamlanma süresidir. Kırmızı işaretler detector tarafından anomaly olarak işaretlenen feature window’larını gösterir.</p><TrendChart label="HTTP p95 gecikme" :values="values('http.server.duration', 'p95')" :markers="anomalyMarkerIndexes('http.server.duration')" unit="ms" /><dl><div><dt>p50 · medyan</dt><dd>{{ latest("http.server.duration", "p50") }} ms</dd></div><div><dt>p95 · yavaş uç</dt><dd>{{ latest("http.server.duration", "p95") }} ms</dd></div><div><dt>p99 · en kötü uç</dt><dd>{{ latest("http.server.duration", "p99") }} ms</dd></div></dl></article>
+            <article class="panel"><header><div><p class="eyebrow">HTTP</p><h2>Trafik ve gecikme</h2></div><span>p50 / p95 / p99</span></header><p class="panel-description">Gecikme, bir isteğin tamamlanması için geçen süredir. Grafikteki kırmızı noktalar Detector tarafından normal dışı bulunan beş dakikalık ölçüm dönemlerini gösterir.</p><TrendChart label="HTTP p95 gecikme" :values="values('http.server.duration', 'p95')" :markers="anomalyMarkerIndexes('http.server.duration')" unit="ms" /><dl><div><dt>p50 · tipik istek</dt><dd>{{ latest("http.server.duration", "p50") }} ms</dd></div><div><dt>p95 · yavaş istekler</dt><dd>{{ latest("http.server.duration", "p95") }} ms</dd></div><div><dt>p99 · en yavaş istekler</dt><dd>{{ latest("http.server.duration", "p99") }} ms</dd></div></dl></article>
             <article class="panel"><header><div><p class="eyebrow">RUNTIME</p><h2>CPU ve bellek</h2></div><span>süreç kullanımı</span></header><p class="panel-description">İşlemci ve bellek değerleri istek işlenirken servis sürecinden ölçülür.</p><TrendChart label="Runtime CPU kullanımı" :values="values('runtime.cpu.usage')" unit="yüzde" /><dl><div><dt>CPU</dt><dd>{{ latest("runtime.cpu.usage") }}%</dd></div><div><dt>Bellek</dt><dd>{{ latest("runtime.memory.usage") }} MB</dd></div></dl></article>
-            <article class="panel"><header><div><p class="eyebrow">DATABASE</p><h2>Bağlantılar ve sorgular</h2></div><span>yerel PostgreSQL</span></header><p class="panel-description">Sorgu gecikmesi, ORM’in PostgreSQL sorgusu için harcadığı süreyi; bağlantılar ise açık bağlantı kullanımını gösterir.</p><TrendChart label="Database sorgu gecikmesi" :values="values('db.query.duration', 'p95')" unit="ms" /><dl><div><dt>Bağlantılar</dt><dd>{{ latest("db.connection.usage", "last") }}</dd></div><div><dt>Sorgu p95</dt><dd>{{ latest("db.query.duration", "p95") }} ms</dd></div></dl></article>
+            <article class="panel"><header><div><p class="eyebrow">DATABASE</p><h2>Bağlantılar ve sorgular</h2></div><span>yerel PostgreSQL</span></header><p class="panel-description">Sorgu gecikmesi, PostgreSQL işlemlerinin tamamlanma süresini gösterir. Bağlantı değeri ise servisin açık Database bağlantısı sayısını belirtir.</p><TrendChart label="Database sorgu gecikmesi" :values="values('db.query.duration', 'p95')" unit="ms" /><dl><div><dt>Açık bağlantı</dt><dd>{{ latest("db.connection.usage", "last") }}</dd></div><div><dt>Sorgu p95</dt><dd>{{ latest("db.query.duration", "p95") }} ms</dd></div></dl></article>
             <article class="panel"><header><div><p class="eyebrow">QUEUE</p><h2>Arka plan işleri</h2></div><span>{{ queueSourceLabel }}</span></header><p class="panel-description">{{ queueStateDescription }}</p><TrendChart label="Queue derinliği" :values="values('queue.depth', 'last')" unit="mesaj" /><dl class="queue-metrics"><div><dt>Bekleyen iş</dt><dd>{{ queueDepth ?? "—" }}</dd></div><div><dt>Eklenen iş</dt><dd>{{ queuedWorkCount }}</dd></div><div><dt>Tamamlanan iş</dt><dd>{{ completedWorkCount }}</dd></div><div><dt>Hatalı iş</dt><dd>{{ failedWorkCount }}</dd></div></dl><p class="panel-footnote">{{ queueAgeDescription }}</p></article>
           </section>
         </template>
-        <p v-else class="notice">Seçili zaman aralığında toplulaştırılmış Telemetry bulunamadı.</p>
+        <p v-else class="notice">Seçili zaman aralığında gösterilecek servis ölçümü bulunamadı.</p>
         </template>
       </div>
       </main>

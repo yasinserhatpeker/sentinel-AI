@@ -4,7 +4,7 @@ SentinelAI keeps three local telemetry layers with distinct purposes:
 
 | Layer | Contents | Retention | Consumer |
 | --- | --- | --- | --- |
-| Raw events | Normalized, bounded telemetry events | 30 days | Investigation and minute aggregation |
+| Raw events | Normalized, bounded telemetry events | Localde varsayılan 3 gün, `RAW_TELEMETRY_RETENTION_DAYS` ile ayarlanabilir | Investigation and minute aggregation |
 | Minute aggregates | Numeric summaries per metric/service/instance | Until local environment reset | Dashboard and feature materializer |
 | `features.v1` | Fixed five-minute, service-scoped ML vectors | Until local environment reset | Future Isolation Forest training and scoring |
 
@@ -36,6 +36,6 @@ backfill_telemetry_features.delay(
 )
 ```
 
-Raw retention deletes only expired `TelemetryEvent` rows. It does not delete minute
+Raw retention runs hourly and deletes only expired `TelemetryEvent` rows. It does not delete minute
 aggregates or feature vectors, preserving a bounded local baseline for the next anomaly
 detection increment.
