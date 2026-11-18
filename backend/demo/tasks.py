@@ -66,8 +66,11 @@ def materialize_completed_telemetry_features(self, window_start: str | None = No
         requested_window = feature_window_start(completed_minute_start())
     materialized = materialize_feature_window(requested_window)
     from .detection.service import score_feature_window
+    from .detection.evaluation import evaluate_experiments_for_window
 
-    score_feature_window(feature_window_start(requested_window))
+    completed_window = feature_window_start(requested_window)
+    score_feature_window(completed_window)
+    evaluate_experiments_for_window(completed_window)
     return materialized
 
 

@@ -3,11 +3,53 @@
 from __future__ import annotations
 
 from .base import DetectorMetadata
+from .baseline import MedianMadDetector, StaticThresholdDetector
 from demo.models import DetectionDecision, DetectorEvaluation, FaultExperiment, GroundTruthWindow
 
 
 def _safe_ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 0.0
+
+
+def detector_metadata_for_experiment(experiment: FaultExperiment) -> tuple[DetectorMetadata, ...]:
+    """Return baselines plus model versions with real decisions in labelled windows."""
+
+    label_windows = experiment.ground_truth_windows.values("window_start")
+    model_metadata = {
+        DetectorMetadata(
+            detector_type=detector_type,
+            detector_version=detector_version,
+            configuration_version=configuration_version,
+            model_version=model_version,
+        )
+        for detector_type, detector_version, configuration_version, model_version in DetectionDecision.objects.filter(
+            environment=experiment.environment,
+            service=experiment.service,
+            detector_type="isolation_forest",
+            feature__window_start__in=label_windows,
+        ).values_list("detector_type", "detector_version", "configuration_version", "model_version")
+        if model_version
+    }
+    return (
+        StaticThresholdDetector().metadata(),
+        MedianMadDetector().metadata(),
+        *sorted(model_metadata, key=lambda item: item.model_version),
+    )
+
+
+def evaluate_experiments_for_window(window_start) -> int:
+    """Refresh evaluations whose labelled evidence includes a completed window."""
+
+    experiments = FaultExperiment.objects.filter(
+        status__in=(FaultExperiment.Status.RECOVERING, FaultExperiment.Status.COMPLETED),
+        ground_truth_windows__window_start=window_start,
+    ).distinct()
+    evaluation_count = 0
+    for experiment in experiments:
+        for metadata in detector_metadata_for_experiment(experiment):
+            evaluate_detector(experiment, metadata)
+            evaluation_count += 1
+    return evaluation_count
 
 
 def evaluate_detector(experiment: FaultExperiment, metadata: DetectorMetadata) -> DetectorEvaluation:

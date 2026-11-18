@@ -83,6 +83,19 @@ class ModelReadinessTests(TestCase):
         self.assertFalse(report["isolation_forest_ready"])
         self.assertFalse(report["lstm_ready"])
 
+    def test_lstm_remaining_time_counts_missing_sequences_after_warmup(self) -> None:
+        # Two independent 27-window runs produce 16 sequences each. Because
+        # the latest run is already warm, every next feature window adds one
+        # sequence; 28 more windows are required to reach the minimum of 60.
+        for index in [*range(27), *range(28, 55)]:
+            self.feature(index)
+
+        report = self.report()
+
+        self.assertEqual(report["candidate_sequence_count"], 32)
+        self.assertEqual(report["windows_remaining_for_lstm"], 28)
+        self.assertEqual(report["estimated_minutes_remaining_for_lstm"], 140)
+
     def test_controlled_fault_and_recovery_windows_are_not_training_eligible(self) -> None:
         features = [self.feature(index) for index in range(50)]
         user = get_user_model().objects.create_superuser(username="operator", password="test-password")

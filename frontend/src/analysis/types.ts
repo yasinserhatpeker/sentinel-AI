@@ -22,10 +22,18 @@ export interface FaultExperiment {
 export interface FaultListResponse { schema_version: "fault-experiments.v1"; results: FaultExperiment[] }
 export interface FaultResponse { schema_version: "fault-experiments.v1"; experiment: FaultExperiment }
 
+export interface ModelTrainingDiagnostics {
+  predicted_anomaly_count: number; predicted_anomaly_rate: number;
+  score_min: number; score_mean: number; score_p50: number; score_p95: number; score_max: number;
+}
+export interface DetectorModelConfiguration {
+  minimum_samples?: number; contamination?: number; random_state?: number; n_estimators?: number;
+  training_diagnostics?: ModelTrainingDiagnostics;
+}
 export interface DetectorModel {
   id: string; model_version: string; detector_type: string; detector_version: string;
   feature_schema_version: string; environment: "local"; service: string; status: string;
-  configuration: Record<string, number>; feature_count: number; sample_count: number;
+  configuration: DetectorModelConfiguration; feature_count: number; sample_count: number;
   trained_from: string; trained_until: string; created_at: string; activated_at: string | null;
   artifact_available: boolean;
 }

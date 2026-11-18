@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: ml
 status: active
 created: 2026-11-17 16:52
-updated: 2026-11-17 23:30
+updated: 2026-11-17 23:45
 ---
 
 # Design — Anomaly hardening and real-data model readiness
@@ -75,6 +75,8 @@ Work proceeds in three ordered packages. Package 1 hardens runtime correctness: 
 - Readiness: explicit environment/service/time scope; feature sample/continuity/gap/missingness counts, journal split counts, gate minimums, readiness booleans and stable reason codes.
 - Isolation Forest training eligibility: baseline decisions remain independent evaluation evidence. Only windows labelled `fault_active` or `recovering` by controlled-experiment ground truth are excluded from normal training.
 - Reporting queue age: a zero broker depth means no queued message and therefore zero oldest-message age, even if an orphaned business row remains after local broker loss. Unknown broker state retains the bounded database observation rather than inventing zero.
+- Model training diagnostics: the model configuration stores the training sample/feature counts, predicted outlier count/rate and finite raw score distribution (`min`, `mean`, `p50`, `p95`, `max`). These are unsupervised diagnostics, not accuracy. Precision/Recall/F1 remain separate ground-truth fault evaluation outputs.
+- Isolation Forest accuracy: evaluation discovers only model versions with persisted live decisions inside an experiment's labelled windows. It never assigns an active model to an older pre-activation experiment. The retry-safe evaluator updates confusion metrics as completed five-minute windows arrive.
 - Workload: bounded environment configuration for duration, interval/concurrency, deterministic seed and base service URLs; business endpoints only.
 - Compatibility: existing public telemetry, feature and business contracts remain additive and valid.
 
@@ -96,6 +98,8 @@ Work proceeds in three ordered packages. Package 1 hardens runtime correctness: 
 | 2026-11-17 | Consolidate delivery into three packages without reducing scope. | The requester wants three reviewable packages: reliability, real-data readiness and model completion. |
 | 2026-11-17 | Keep baseline predictions independent from Isolation Forest training eligibility and derive exclusions from controlled ground truth. | Reporting false positives demonstrated that one detector must not define another detector's training truth. |
 | 2026-11-17 | Bind oldest-message age to actual broker depth. | A stale database status is not a queued broker message and must not create an unbounded queue-age signal. |
+| 2026-11-17 | Show Isolation Forest training diagnostics separately from detector evaluation. | Isolation Forest has no labelled training accuracy; score distribution and predicted outlier rate are honest training outputs while Precision/Recall/F1 require fault ground truth. |
+| 2026-11-17 | Evaluate Isolation Forest only from persisted model decisions overlapping controlled-fault labels. | This produces real-data accuracy without inventing historical predictions or leaking baseline labels into model truth. |
 
 ## Rules consulted
 

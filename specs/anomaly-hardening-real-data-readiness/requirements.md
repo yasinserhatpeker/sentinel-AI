@@ -6,7 +6,7 @@ area: ml
 status: active
 verification: full
 created: 2026-11-17 16:52
-updated: 2026-11-17 23:30
+updated: 2026-11-17 23:45
 branches: core-development
 ---
 
@@ -37,6 +37,8 @@ The anomaly milestone works end to end, but manual verification exposed three re
 - [ ] Isolation Forest trains from real time-ordered data, persists/activates a compatible artifact and produces a traceable live decision for a later completed window. → `manual:api`
 - [ ] The offline LSTM prototype trains and evaluates from chronological train/validation/test journals when the real-data gate is met and is never activated automatically. → `manual:api`
 - [x] The Turkish operator UI presents normalized anomaly scores, accurate fault state and model-data readiness with loading, collecting, ready, partial and error states. → `manual:ui`
+- [ ] The model results UI separates unsupervised Isolation Forest training diagnostics from fault-labelled Precision/Recall/F1 evaluation and never presents training accuracy that the algorithm does not produce. → `auto:test` + `manual:ui`
+- [ ] Active Isolation Forest live decisions are evaluated against controlled-fault ground truth and expose Precision, Recall, F1-score, false-positive rate, detection delay and confusion counts without backfilling decisions for pre-activation experiments. → `auto:test` + `manual:data`
 - [ ] Backend, demo-service, frontend, Compose and whitespace checks pass, followed by a full manual regression with no unfinished fault experiment. → `auto:check`
 
 ## Affected areas

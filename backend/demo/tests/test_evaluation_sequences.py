@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from demo.detection.base import DetectorMetadata
-from demo.detection.evaluation import evaluate_detector
+from demo.detection.evaluation import detector_metadata_for_experiment, evaluate_detector, evaluate_experiments_for_window
 from demo.detection.sequences import materialize_sequence_journals, train_lstm_prototype
 from demo.models import DetectionDecision, FaultExperiment, GroundTruthWindow, SequenceJournal, TelemetryFeature
 from demo.telemetry_ingestion import FEATURE_V2_NAMES
@@ -63,6 +63,48 @@ class EvaluationAndSequenceTests(TestCase):
         self.assertEqual(second.false_positive_rate, 0.5)
         self.assertEqual(second.detection_delay_seconds, 300.0)
         self.assertEqual(second.recovery_delay_seconds, 300.0)
+
+    def test_isolation_forest_evaluation_requires_real_overlapping_model_decisions(self) -> None:
+        experiment = self.experiment()
+        labels = ("normal", "normal", "fault_active", "fault_active")
+        predictions = (False, True, True, False)
+        metadata = DetectorMetadata(
+            "isolation_forest", "1.0.0", "isolation-forest.if-real-data", "if-real-data"
+        )
+        for index, (label, prediction) in enumerate(zip(labels, predictions)):
+            feature = self.feature(index)
+            GroundTruthWindow.objects.create(
+                experiment=experiment, environment="local", service="orders-api",
+                window_start=feature.window_start, label=label, fault_severity=0.8,
+            )
+            DetectionDecision.objects.create(
+                feature=feature, environment="local", service="orders-api",
+                detector_type=metadata.detector_type, detector_version=metadata.detector_version,
+                configuration_version=metadata.configuration_version, model_version=metadata.model_version,
+                is_anomaly=prediction, severity="warning" if prediction else "normal", reasons=[],
+            )
+
+        discovered = detector_metadata_for_experiment(experiment)
+        self.assertIn(metadata, discovered)
+        self.assertEqual(evaluate_experiments_for_window(self.start + timedelta(minutes=15)), 3)
+        result = experiment.evaluations.get(detector_type="isolation_forest", model_version="if-real-data")
+        self.assertEqual((result.true_positive, result.false_positive, result.true_negative, result.false_negative), (1, 1, 1, 1))
+        self.assertEqual(result.precision, 0.5)
+        self.assertEqual(result.recall, 0.5)
+        self.assertEqual(result.f1_score, 0.5)
+        self.assertEqual(result.false_positive_rate, 0.5)
+
+    def test_pre_activation_experiment_does_not_invent_isolation_forest_evaluation(self) -> None:
+        experiment = self.experiment()
+        feature = self.feature(0)
+        GroundTruthWindow.objects.create(
+            experiment=experiment, environment="local", service="orders-api",
+            window_start=feature.window_start, label=GroundTruthWindow.Label.NORMAL, fault_severity=0.0,
+        )
+
+        discovered = detector_metadata_for_experiment(experiment)
+
+        self.assertEqual([item.detector_type for item in discovered], ["static_threshold", "median_mad"])
 
     def test_sequence_journals_are_contiguous_time_ordered_and_lstm_gated(self) -> None:
         experiment = self.experiment()

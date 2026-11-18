@@ -58,6 +58,10 @@ def _set_refresh_cookie(response, refresh):
     return response
 
 
+def _session_payload(user, access_token):
+    return {"access": str(access_token), "user": {"username": user.get_username()}}
+
+
 class CsrfView(PublicAuthAPIView):
 
     @method_decorator(ensure_csrf_cookie)
@@ -85,7 +89,7 @@ class LoginView(PublicAuthAPIView):
             raise AuthenticationFailed("invalid_credentials")
         cache.delete(key)
         refresh = RefreshToken.for_user(user)
-        return _set_refresh_cookie(Response({"access": str(refresh.access_token)}), refresh)
+        return _set_refresh_cookie(Response(_session_payload(user, refresh.access_token)), refresh)
 
 
 @method_decorator(csrf_protect, name="dispatch")
@@ -105,7 +109,7 @@ class RefreshView(PublicAuthAPIView):
             next_refresh = RefreshToken.for_user(user)
         except Exception as error:
             raise AuthenticationFailed("authentication_required") from error
-        return _set_refresh_cookie(Response({"access": str(next_refresh.access_token)}), next_refresh)
+        return _set_refresh_cookie(Response(_session_payload(user, next_refresh.access_token)), next_refresh)
 
 
 @method_decorator(csrf_protect, name="dispatch")

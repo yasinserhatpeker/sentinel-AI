@@ -5,7 +5,7 @@ author: Yasin Serhat Peker
 area: ml
 status: active
 created: 2026-11-17 16:52
-updated: 2026-11-17 23:30
+updated: 2026-11-17 23:45
 ---
 
 # Tasks — Anomaly hardening and real-data model readiness
@@ -49,6 +49,10 @@ updated: 2026-11-17 23:30
 - [ ] Train, persist, activate and live-score Isolation Forest from the collected real data.
 - [ ] Train and evaluate the offline LSTM prototype from chronological splits without activation.
 - [x] Present readiness, normalized scores, accurate fault state and model results in the Turkish UI.
+- [x] Persist bounded Isolation Forest training diagnostics and present them in a separate Turkish model-results panel.
+- [x] Keep ground-truth detector evaluation visible as a distinct fault-comparison panel.
+- [x] Add retry-safe Isolation Forest ground-truth evaluation discovery to completed-window processing.
+- [x] Show Isolation Forest confusion/Precision/Recall/F1 separately from baseline comparison in the Turkish UI.
 - [ ] Execute the full API/UI/restart/fault/model manual regression and leave no unfinished fault.
 - [x] Run backend, demo-service, frontend, Compose and whitespace checks.
 - [ ] Document evidence, complete archive gates and archive the spec.
@@ -65,6 +69,8 @@ updated: 2026-11-17 23:30
 | Full operator regression | `manual:ui` | Overview, service health, anomaly evidence, fault history and model-readiness screens passed manual UI verification. Analysis endpoints returned 200; model gates returned explicit 409 reason codes; real fault start→recovering→completed left zero unfinished faults. Model-success rows remain pending real-data gates. |
 | Final automated regression | `auto:check` | Passed: 65 Django tests, 3 reporting-service tests, 6 shared fault tests, 4 workload tests, 4 frontend tests, production frontend build, Compose config and `git diff --check`, 2026-11-17. |
 | Reporting queue-age false-positive repair | `auto:test` + `manual:data` | Passed: broker depth `0` now yields queue age `0.0`; orphaned job `2819` was requeued through the real Celery worker and completed; latest live queue-age events are bounded at `0.0`/`0.038226` seconds; all five services report 51–57 eligible real Isolation Forest samples. Regression passed: 65 Django, 3 reporting-service, 6 shared-fault, 4 workload and 4 frontend tests plus production build, Compose config and whitespace check, 2026-11-17. |
+| Isolation Forest training diagnostics | `auto:test` + `manual:data` | Passed: model lifecycle/API suite 12/12, frontend 4/4 and production build. Five active real-data models were backfilled from their persisted artifacts and original training ranges; each exposes sample/feature counts, predicted outlier count/rate and finite min/mean/p50/p95/max raw score diagnostics. Live frontend serves separate training-score and fault-evaluation panels, 2026-11-17. |
+| Isolation Forest ground-truth accuracy integration | `auto:test` | Passed: evaluator/model/API suite 17/17, frontend 4/4 and production build. Completed-window processing discovers only persisted Isolation Forest model decisions overlapping labelled fault windows; pre-activation experiments do not receive invented model evaluations. Turkish UI separates model Precision/Recall/F1/confusion from baseline results, 2026-11-18. |
 
 - [x] Record every automatic command result.
 - [ ] Confirm the commit trailer uses `Spec: anomaly-hardening-real-data-readiness`.

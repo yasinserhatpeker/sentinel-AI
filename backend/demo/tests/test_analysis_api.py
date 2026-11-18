@@ -34,7 +34,11 @@ class AnalysisApiTests(TestCase):
     def model(self) -> DetectorModel:
         return DetectorModel.objects.create(
             model_version="if-api-test", detector_version="1.0.0", environment="local", service="orders-api",
-            status=DetectorModel.Status.TRAINED, configuration={"contamination": 0.05}, feature_names=["latency_p95_ms"],
+            status=DetectorModel.Status.TRAINED, configuration={"contamination": 0.05, "training_diagnostics": {
+                "predicted_anomaly_count": 3, "predicted_anomaly_rate": 0.06,
+                "score_min": -0.2, "score_mean": -0.1, "score_p50": -0.12,
+                "score_p95": 0.03, "score_max": 0.08,
+            }}, feature_names=["latency_p95_ms"],
             sample_count=50, trained_from=self.now - timedelta(hours=5), trained_until=self.now,
             artifact_path="if-api-test.joblib",
         )
@@ -80,6 +84,7 @@ class AnalysisApiTests(TestCase):
         self.assertEqual(ordinary.status_code, 403)
         self.assertEqual(trained.status_code, 201)
         self.assertEqual(listed.data["results"][0]["model_version"], model.model_version)
+        self.assertEqual(listed.data["results"][0]["configuration"]["training_diagnostics"]["predicted_anomaly_count"], 3)
         self.assertNotIn("artifact_path", listed.data["results"][0])
         self.assertEqual(activated.data["model"]["status"], "active")
 

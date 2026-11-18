@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 import joblib
+import numpy as np
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -25,6 +26,24 @@ from .training_data import normal_training_features
 
 ISOLATION_FOREST_VERSION = "1.0.0"
 MODEL_FEATURE_NAMES = (*BASE_FEATURE_FIELDS, *FEATURE_V2_NAMES)
+
+
+def calculate_training_diagnostics(pipeline: Pipeline, vectors: list[list[float | None]]) -> dict[str, float | int]:
+    """Return finite unsupervised diagnostics without claiming labelled accuracy."""
+
+    raw_scores = -pipeline.decision_function(vectors)
+    predictions = pipeline.predict(vectors)
+    predicted_anomaly_count = int(np.count_nonzero(predictions == -1))
+    sample_count = len(vectors)
+    return {
+        "predicted_anomaly_count": predicted_anomaly_count,
+        "predicted_anomaly_rate": predicted_anomaly_count / sample_count if sample_count else 0.0,
+        "score_min": float(np.min(raw_scores)),
+        "score_mean": float(np.mean(raw_scores)),
+        "score_p50": float(np.percentile(raw_scores, 50)),
+        "score_p95": float(np.percentile(raw_scores, 95)),
+        "score_max": float(np.max(raw_scores)),
+    }
 
 
 def feature_vector(feature: TelemetryFeature, names: tuple[str, ...] = MODEL_FEATURE_NAMES) -> list[float | None]:
@@ -84,7 +103,9 @@ def train_isolation_forest(
             ),
         )
     )
-    pipeline.fit([feature_vector(row) for row in rows])
+    vectors = [feature_vector(row) for row in rows]
+    pipeline.fit(vectors)
+    training_diagnostics = calculate_training_diagnostics(pipeline, vectors)
 
     model_version = f"if-{uuid.uuid4().hex}"
     artifact_name = f"{model_version}.joblib"
@@ -114,6 +135,7 @@ def train_isolation_forest(
                 "contamination": contamination,
                 "random_state": random_state,
                 "n_estimators": 200,
+                "training_diagnostics": training_diagnostics,
             },
             feature_names=list(MODEL_FEATURE_NAMES),
             sample_count=len(rows),
