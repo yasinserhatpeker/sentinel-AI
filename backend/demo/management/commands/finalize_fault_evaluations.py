@@ -59,7 +59,12 @@ class Command(BaseCommand):
         for experiment in experiments:
             services.add(experiment.service)
             for metadata in detector_metadata_for_experiment(experiment):
-                result = evaluate_detector(experiment, metadata)
+                try:
+                    result = evaluate_detector(experiment, metadata)
+                except ValueError as exc:
+                    if str(exc) != "evaluation_evidence_incomplete":
+                        raise
+                    continue
                 evaluations.append(
                     {
                         "experiment_id": str(experiment.pk),
