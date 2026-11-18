@@ -32,6 +32,21 @@ SCENARIO_NAMES = {
     FaultExperiment.FaultType.QUEUE_BACKLOG: "queue-backlog",
 }
 ACTIVE_STATUSES = (FaultExperiment.Status.PENDING, FaultExperiment.Status.ACTIVE, FaultExperiment.Status.RECOVERING)
+RECOVERY_SECONDS = 120
+
+
+def complete_expired_recoveries(*, now=None, environment: str = "local", service: str | None = None) -> int:
+    """Complete elapsed recovery records even when the Celery watchdog is unavailable."""
+
+    current = now or timezone.now()
+    queryset = FaultExperiment.objects.filter(
+        environment=environment,
+        status=FaultExperiment.Status.RECOVERING,
+        recovery_until__lte=current,
+    )
+    if service is not None:
+        queryset = queryset.filter(service=service)
+    return queryset.update(status=FaultExperiment.Status.COMPLETED)
 
 
 def validate_experiment(service: str, fault_type: str, duration_seconds: int, parameters: dict) -> dict:
@@ -84,6 +99,7 @@ def start_experiment(*, actor, service: str, fault_type: str, duration_seconds: 
     if not 0 <= seed <= 2_147_483_647:
         raise ValueError("fault_seed_out_of_range")
     normalized = validate_experiment(service, fault_type, duration_seconds, parameters)
+    complete_expired_recoveries(service=service)
     if FaultExperiment.objects.select_for_update().filter(environment="local", service=service, status__in=ACTIVE_STATUSES).exists():
         raise ValueError("fault_experiment_conflict")
     experiment = FaultExperiment.objects.create(
@@ -149,7 +165,7 @@ def stop_experiment(experiment: FaultExperiment, *, now=None) -> FaultExperiment
 def _transition_to_recovering(locked: FaultExperiment, current) -> FaultExperiment:
     locked.status = FaultExperiment.Status.RECOVERING
     locked.stopped_at = current
-    locked.recovery_until = current + timedelta(minutes=10)
+    locked.recovery_until = current + timedelta(seconds=RECOVERY_SECONDS)
     locked.save(update_fields=("status", "stopped_at", "recovery_until"))
     materialize_ground_truth(locked)
     return locked
@@ -186,5 +202,5 @@ def recover_expired_experiments(*, now=None) -> int:
         if runtime.get("status") != "active" or runtime.get("experiment_id") != str(experiment.pk):
             _recover_missing_runtime_state(experiment, now=current)
             changed += 1
-    completed = FaultExperiment.objects.filter(status=FaultExperiment.Status.RECOVERING, recovery_until__lte=current).update(status=FaultExperiment.Status.COMPLETED)
+    completed = complete_expired_recoveries(now=current)
     return changed + completed

@@ -1,5 +1,6 @@
 from django.core.cache import cache
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
+from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -12,7 +13,7 @@ from .detection.base import normalize_positive_score, normalize_signed_score
 from .detection.isolation_forest import activate_model, train_isolation_forest
 from .detection.readiness import model_data_readiness
 from .detection.sequences import materialize_sequence_journals, train_lstm_prototype
-from .faults import repeat_experiment, start_experiment, stop_experiment
+from .faults import complete_expired_recoveries, repeat_experiment, start_experiment, stop_experiment
 from .models import DetectionDecision, DetectorEvaluation, DetectorModel, FaultExperiment, Order, TelemetryAggregate
 from .serializers import (
     BoundedAnalysisQuerySerializer,
@@ -121,10 +122,13 @@ class TelemetryIngestView(APIView):
         events = serializer.validated_data["events"]
         inserted, duplicates = persist_metric_events(events)
         # Keep the local dashboard responsive after a genuine service request.
-        # The periodic task still recomputes completed windows; this upsert only
-        # exposes the in-progress minute sooner and never fabricates a value.
+        # Debounce concurrent service bursts and never make ingest requests wait
+        # behind the same PostgreSQL advisory lock. Dashboard reads perform one
+        # authoritative recomputation after the burst.
         for window in {event["observed_at"].replace(second=0, microsecond=0) for event in events}:
-            aggregate_minute(window)
+            cache_key = f"telemetry:inline-aggregate:{window.isoformat()}"
+            if cache.add(cache_key, "1", timeout=1):
+                aggregate_minute(window, wait_for_lock=False)
         return Response(
             {
                 "schema_version": serializer.validated_data["schema_version"],
@@ -157,23 +161,113 @@ class SystemOverviewView(APIView):
         serializer = TelemetryServiceQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         environment = serializer.validated_data["environment"]
-        services = list(TelemetryAggregate.objects.filter(environment=environment).order_by("service").values_list("service", flat=True).distinct())
+        complete_expired_recoveries(environment=environment)
+
+        latest_window = (
+            TelemetryAggregate.objects.filter(
+                environment=environment,
+                service=OuterRef("service"),
+                metric_name=OuterRef("metric_name"),
+            )
+            .order_by("-window_start")
+            .values("window_start")[:1]
+        )
+        latest_rows = list(
+            TelemetryAggregate.objects.filter(
+                environment=environment,
+                window_start=Subquery(latest_window),
+            ).order_by("service", "metric_name")
+        )
+        grouped: dict[str, dict[str, list[TelemetryAggregate]]] = {}
+        for row in latest_rows:
+            grouped.setdefault(row.service, {}).setdefault(row.metric_name, []).append(row)
+
+        anomaly_candidates = list(
+            DetectionDecision.objects.filter(environment=environment, is_anomaly=True)
+            .select_related("feature")
+            .order_by("-created_at")[:500]
+        )
+        anomaly_by_service: dict[str, DetectionDecision] = {}
+        for candidate in anomaly_candidates:
+            previous = anomaly_by_service.get(candidate.service)
+            if previous is None or (_normalized_decision_score(candidate) or 0.0) > (_normalized_decision_score(previous) or 0.0):
+                anomaly_by_service[candidate.service] = candidate
+
+        active_faults = list(
+            FaultExperiment.objects.filter(
+                environment=environment,
+                status__in=(FaultExperiment.Status.PENDING, FaultExperiment.Status.ACTIVE),
+            ).order_by("-created_at")[:10]
+        )
+        recovering_faults = list(
+            FaultExperiment.objects.filter(
+                environment=environment,
+                status=FaultExperiment.Status.RECOVERING,
+            ).order_by("-created_at")[:10]
+        )
+        fault_by_service = {item.service: item for item in [*recovering_faults, *active_faults]}
+
+        def metric_rows(service: str, metric_name: str) -> list[TelemetryAggregate]:
+            return grouped.get(service, {}).get(metric_name, [])
+
+        def weighted_average(rows: list[TelemetryAggregate]) -> float | None:
+            event_count = sum(row.event_count for row in rows)
+            if not event_count:
+                return None
+            return sum(row.average * row.event_count for row in rows) / event_count
+
+        def maximum(rows: list[TelemetryAggregate], field: str) -> float | None:
+            return max((getattr(row, field) for row in rows), default=None)
+
         summary = []
-        for service in services:
-            latest = {row.metric_name: row for row in TelemetryAggregate.objects.filter(environment=environment, service=service).order_by("metric_name", "-window_start").distinct("metric_name")}
-            error_rate = latest.get("http.server.error_rate")
-            latency = latest.get("http.server.duration")
-            queue = latest.get("queue.depth")
-            status_value = "degraded" if error_rate and error_rate.last_value > 0 else "healthy"
-            summary.append({"service": service, "status": status_value, "p95_latency_ms": latency.p95 if latency else None, "queue_depth": queue.last_value if queue else None})
+        for service in sorted(grouped):
+            request_rows = metric_rows(service, "http.server.request_count")
+            error_rows = metric_rows(service, "http.server.error_rate")
+            latency_rows = metric_rows(service, "http.server.duration")
+            cpu_rows = metric_rows(service, "runtime.cpu.usage")
+            memory_rows = metric_rows(service, "runtime.memory.usage")
+            connection_rows = metric_rows(service, "db.connection.usage")
+            query_rows = metric_rows(service, "db.query.duration")
+            queue_rows = metric_rows(service, "queue.depth")
+            queue_age_rows = metric_rows(service, "queue.oldest_message_age")
+            failed_rows = metric_rows(service, "queue.failed_task_count")
+            error_rate = weighted_average(error_rows)
+            current_fault = fault_by_service.get(service)
+            anomaly = anomaly_by_service.get(service)
+            status_value = "degraded" if (error_rate or current_fault) else "healthy"
+            service_rows = [row for rows in grouped[service].values() for row in rows]
+            summary.append(
+                {
+                    "service": service,
+                    "status": status_value,
+                    "last_window": max((row.window_start for row in service_rows), default=None),
+                    "request_count": sum(row.event_count for row in request_rows) if request_rows else None,
+                    "error_rate_percent": error_rate * 100 if error_rate is not None else None,
+                    "p95_latency_ms": maximum(latency_rows, "p95"),
+                    "cpu_percent": weighted_average(cpu_rows),
+                    "memory_mb": weighted_average(memory_rows),
+                    "db_connections": maximum(connection_rows, "last_value"),
+                    "db_query_p95_ms": maximum(query_rows, "p95"),
+                    "queue_depth": maximum(queue_rows, "last_value"),
+                    "queue_oldest_age_seconds": maximum(queue_age_rows, "last_value"),
+                    "failed_task_count": sum(row.event_count for row in failed_rows) if failed_rows else None,
+                    "anomaly": (
+                        {
+                            "score": _normalized_decision_score(anomaly),
+                            "severity": anomaly.severity,
+                            "detector_type": anomaly.detector_type,
+                        }
+                        if anomaly
+                        else None
+                    ),
+                    "fault": _experiment_data(current_fault) if current_fault else None,
+                }
+            )
         slowest_item = max((item for item in summary if item["p95_latency_ms"] is not None), key=lambda item: item["p95_latency_ms"], default=None)
         busiest_item = max((item for item in summary if item["queue_depth"] is not None), key=lambda item: item["queue_depth"], default=None)
         slowest = ({"service": slowest_item["service"], "p95_latency_ms": slowest_item["p95_latency_ms"]} if slowest_item else None)
         busiest = ({"service": busiest_item["service"], "queue_depth": busiest_item["queue_depth"]} if busiest_item else None)
-        anomaly_candidates = list(DetectionDecision.objects.filter(environment=environment, is_anomaly=True).select_related("feature").order_by("-created_at")[:500])
         anomaly = max(anomaly_candidates, key=lambda item: _normalized_decision_score(item) or 0.0, default=None)
-        active_faults = list(FaultExperiment.objects.filter(environment=environment, status__in=(FaultExperiment.Status.PENDING, FaultExperiment.Status.ACTIVE)).order_by("-created_at")[:10])
-        recovering_faults = list(FaultExperiment.objects.filter(environment=environment, status=FaultExperiment.Status.RECOVERING).order_by("-created_at")[:10])
         latest_completed_fault = FaultExperiment.objects.filter(environment=environment, status=FaultExperiment.Status.COMPLETED).order_by("-created_at").first()
         current_fault = (active_faults or recovering_faults or [None])[0]
         return Response({"schema_version": "overview.v2", "environment": environment, "services": summary, "healthy_service_count": sum(item["status"] == "healthy" for item in summary), "degraded_service_count": sum(item["status"] == "degraded" for item in summary), "slowest_service": slowest, "busiest_queue": busiest, "open_incidents": None, "highest_anomaly_score": ({"service": anomaly.service, "score": _normalized_decision_score(anomaly), "raw_score": anomaly.score, "severity": anomaly.severity} if anomaly else None), "active_fault_count": len(active_faults), "recovering_fault_count": len(recovering_faults), "active_faults": [_experiment_data(item) for item in active_faults], "recovering_faults": [_experiment_data(item) for item in recovering_faults], "fault_context_available": bool(current_fault or latest_completed_fault), "latest_fault": (_experiment_data(current_fault) if current_fault else None), "latest_completed_fault": (_experiment_data(latest_completed_fault) if latest_completed_fault else None), "dependencies": [["orders-api", "payments-api"], ["payments-api", "inventory-api"], ["inventory-api", "notifications-api"], ["notifications-api", "reporting-worker"]]})
@@ -186,6 +280,7 @@ class TelemetryAggregateListView(APIView):
         serializer = TelemetryAggregateQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         scope = serializer.validated_data
+        aggregate_minute(timezone.now().replace(second=0, microsecond=0))
         aggregates: QuerySet[TelemetryAggregate] = TelemetryAggregate.objects.filter(
             environment=scope["environment"],
             service=scope["service"],
@@ -370,6 +465,7 @@ class FaultExperimentListCreateView(APIView):
         serializer = BoundedAnalysisQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         scope = serializer.validated_data
+        complete_expired_recoveries(environment=scope["environment"], service=scope["service"])
         experiments = FaultExperiment.objects.filter(environment=scope["environment"], service=scope["service"], created_at__gte=scope["start"], created_at__lt=scope["end"]).select_related("created_by", "repeated_from").order_by("-created_at")[:scope["limit"]]
         return Response({"schema_version": "fault-experiments.v1", "results": [_experiment_data(item) for item in experiments]})
 

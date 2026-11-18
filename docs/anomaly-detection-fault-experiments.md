@@ -147,7 +147,9 @@ docker compose exec api python manage.py finalize_fault_evaluations --lookback-m
 
 Komut gerçek demo service endpoint'lerine istek gönderir, her fault'u signed control ile başlatır,
 ölçer, durdurur ve ground-truth window sayısını JSON olarak yazar. Active veya recovering başka
-experiment varsa güvenlik nedeniyle başlamaz; watchdog recovery'yi tamamladıktan sonra tekrar denenir.
+experiment varsa güvenlik nedeniyle başlamaz. Recovery süresi iki dakikadır; Celery watchdog bu durumu
+tamamlar, ayrıca liste/özet okuması ve yeni deney başlatma işlemi süresi geçmiş kayıtları kendiliğinden
+uzlaştırır. Böylece worker kapalıyken kalan eski bir `recovering` kaydı yeni deneyi süresiz engellemez.
 Finalizer yalnızca tamamlanmış minute/feature window'larını aggregate eder, baseline decision'ları
 idempotent biçimde üretir, ground truth ile eşleştirir ve LSTM-ready sequence journal'ı günceller.
 

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -12,6 +13,7 @@ from demo.tests.helpers import bearer_token, create_superuser
 
 class TelemetryIngestionTests(TestCase):
     def setUp(self) -> None:
+        cache.clear()
         self.client = APIClient()
         self.user = create_superuser()
         self.observed_at = timezone.now().replace(second=10, microsecond=0)
