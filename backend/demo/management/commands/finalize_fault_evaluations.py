@@ -8,8 +8,7 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from demo.detection.baseline import MedianMadDetector, StaticThresholdDetector
-from demo.detection.evaluation import evaluate_detector
+from demo.detection.evaluation import detector_metadata_for_experiment, evaluate_detector
 from demo.detection.sequences import materialize_sequence_journals
 from demo.detection.service import score_feature_window
 from demo.models import FaultExperiment
@@ -51,7 +50,6 @@ class Command(BaseCommand):
             decision_rows += score_feature_window(cursor)
             cursor += timedelta(minutes=5)
 
-        detectors = (StaticThresholdDetector(), MedianMadDetector())
         experiments = FaultExperiment.objects.filter(
             created_at__gte=aggregate_start,
             status__in=(FaultExperiment.Status.RECOVERING, FaultExperiment.Status.COMPLETED),
@@ -60,14 +58,15 @@ class Command(BaseCommand):
         services = set()
         for experiment in experiments:
             services.add(experiment.service)
-            for detector in detectors:
-                result = evaluate_detector(experiment, detector.metadata())
+            for metadata in detector_metadata_for_experiment(experiment):
+                result = evaluate_detector(experiment, metadata)
                 evaluations.append(
                     {
                         "experiment_id": str(experiment.pk),
                         "fault_type": experiment.fault_type,
                         "service": experiment.service,
                         "detector_type": result.detector_type,
+                        "model_version": result.model_version or None,
                         "precision": result.precision,
                         "recall": result.recall,
                         "f1_score": result.f1_score,

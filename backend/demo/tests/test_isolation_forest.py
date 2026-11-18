@@ -76,6 +76,12 @@ class IsolationForestLifecycleTests(TestCase):
             self.assertEqual(model.sample_count, 60)
             self.assertEqual(model.feature_names, list(MODEL_FEATURE_NAMES))
             self.assertTrue((Path(directory) / model.artifact_path).is_file())
+            diagnostics = model.configuration["training_diagnostics"]
+            self.assertEqual(diagnostics["predicted_anomaly_count"], 3)
+            self.assertAlmostEqual(diagnostics["predicted_anomaly_rate"], 0.05)
+            self.assertLessEqual(diagnostics["score_min"], diagnostics["score_p50"])
+            self.assertLessEqual(diagnostics["score_p50"], diagnostics["score_p95"])
+            self.assertLessEqual(diagnostics["score_p95"], diagnostics["score_max"])
 
             active = activate_model(model)
             self.assertEqual(active.status, DetectorModel.Status.ACTIVE)

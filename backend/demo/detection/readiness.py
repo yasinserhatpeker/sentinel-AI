@@ -81,8 +81,10 @@ def model_data_readiness(*, environment: str, service: str, start, end) -> dict:
         else "partial" if has_partial_data
         else "collecting"
     )
-    required_feature_windows = LSTM_MINIMUM_SEQUENCES + LSTM_SEQUENCE_LENGTH - 1
-    remaining_windows = max(0, required_feature_windows - longest_run)
+    remaining_sequences = max(0, LSTM_MINIMUM_SEQUENCES - candidate_sequences)
+    current_run = run_lengths[-1] if run_lengths else 0
+    warmup_windows = max(0, LSTM_SEQUENCE_LENGTH - 1 - current_run)
+    remaining_windows = warmup_windows + remaining_sequences
 
     return {
         "schema_version": "model-readiness.v1",
