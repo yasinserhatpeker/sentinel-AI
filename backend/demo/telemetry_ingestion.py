@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from statistics import fmean, pstdev
 
+from django.conf import settings
 from django.db.models import Count
 from django.db import connection, transaction
 from django.utils import timezone
@@ -187,7 +188,7 @@ def completed_minute_start(now: datetime | None = None) -> datetime:
 
 
 def purge_expired_events(now: datetime | None = None) -> int:
-    cutoff = (now or timezone.now()) - timedelta(days=30)
+    cutoff = (now or timezone.now()) - timedelta(days=settings.RAW_TELEMETRY_RETENTION_DAYS)
     deleted, _ = TelemetryEvent.objects.filter(ingested_at__lt=cutoff).delete()
     return deleted
 

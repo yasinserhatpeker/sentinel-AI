@@ -4,6 +4,8 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+RAW_TELEMETRY_RETENTION_DAYS = max(1, int(os.environ.get("RAW_TELEMETRY_RETENTION_DAYS", "3")))
+
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = True
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "api", "testserver"]
@@ -71,7 +73,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     "purge-expired-telemetry": {
         "task": "demo.tasks.purge_expired_telemetry",
-        "schedule": 86400.0,
+        "schedule": 3600.0,
     },
     "recover-expired-fault-experiments": {
         "task": "demo.tasks.recover_expired_fault_experiments",

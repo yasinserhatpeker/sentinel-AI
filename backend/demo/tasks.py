@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from celery import shared_task
 from django.core.cache import cache
 
@@ -49,7 +51,7 @@ def aggregate_completed_telemetry_minute(self, window_start: str | None = None) 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def purge_expired_telemetry(self) -> int:
-    """Enforce the approved 30-day local raw-telemetry retention period."""
+    """Delete raw telemetry older than the configured local retention period."""
 
     return purge_expired_events()
 
@@ -63,7 +65,10 @@ def materialize_completed_telemetry_features(self, window_start: str | None = No
 
         requested_window = datetime.fromisoformat(window_start.replace("Z", "+00:00"))
     else:
-        requested_window = feature_window_start(completed_minute_start())
+        # Beat may run a few minutes into the current five-minute bucket. Use
+        # the previous bucket so all five source minutes are complete instead
+        # of repeatedly selecting an in-progress window that cannot materialize.
+        requested_window = feature_window_start(completed_minute_start()) - timedelta(minutes=5)
     materialized = materialize_feature_window(requested_window)
     from .detection.service import score_feature_window
     from .detection.evaluation import evaluate_experiments_for_window
