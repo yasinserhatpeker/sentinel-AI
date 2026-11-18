@@ -24,7 +24,7 @@ from .service import persist_detection
 from .training_data import normal_training_features
 
 
-ISOLATION_FOREST_VERSION = "1.1.0"
+ISOLATION_FOREST_VERSION = "1.2.0"
 RELATIVE_FEATURE_PREFIX = "relative_to_15m."
 RELATIVE_FEATURE_NAMES = tuple(f"{RELATIVE_FEATURE_PREFIX}{name}" for name in BASE_FEATURE_FIELDS)
 CONTEXT_FEATURE_NAMES = (
@@ -41,6 +41,14 @@ CONTEXT_FEATURE_NAMES = (
 # Current values preserve absolute service behaviour, relative values expose
 # sudden deviations, and a small context set retains time/dependency signals.
 MODEL_FEATURE_NAMES = (*BASE_FEATURE_FIELDS, *RELATIVE_FEATURE_NAMES, *CONTEXT_FEATURE_NAMES)
+UNIVARIATE_GUARD_MINIMUM_DELTAS = {
+    "latency_p95_ms": 100.0,
+    "error_rate": 0.05,
+    "db_query_p95_ms": 50.0,
+    "queue_depth_max": 10.0,
+    "queue_oldest_age_max_seconds": 30.0,
+    "failed_task_count": 1.0,
+}
 
 
 def calculate_training_diagnostics(
@@ -82,6 +90,33 @@ def feature_vector(feature: TelemetryFeature, names: tuple[str, ...] = MODEL_FEA
         else:
             values.append(feature.feature_values.get(name))
     return values
+
+
+def calculate_univariate_upper_limits(rows: list[TelemetryFeature]) -> dict[str, dict[str, float]]:
+    """Calibrate strong one-dimensional guards from clean normal training rows."""
+
+    limits: dict[str, dict[str, float]] = {}
+    for field, minimum_delta in UNIVARIATE_GUARD_MINIMUM_DELTAS.items():
+        values = np.asarray([
+            float(value) for row in rows
+            if (value := getattr(row, field)) is not None and np.isfinite(value)
+        ])
+        if not values.size:
+            continue
+        median = float(np.median(values))
+        scaled_mad = float(np.median(np.abs(values - median)) * 1.4826)
+        observed_max = float(np.max(values))
+        upper_limit = max(
+            observed_max + max(abs(observed_max) * 0.1, minimum_delta * 0.1),
+            median + max(8.0 * scaled_mad, minimum_delta),
+        )
+        limits[field] = {
+            "upper_limit": upper_limit,
+            "training_median": median,
+            "training_scaled_mad": scaled_mad,
+            "minimum_delta": minimum_delta,
+        }
+    return limits
 
 
 def _artifact_root() -> Path:
@@ -140,6 +175,7 @@ def train_isolation_forest(
         vectors,
         score_threshold=score_threshold,
     )
+    univariate_upper_limits = calculate_univariate_upper_limits(rows)
 
     model_version = f"if-{uuid.uuid4().hex}"
     artifact_name = f"{model_version}.joblib"
@@ -153,6 +189,7 @@ def train_isolation_forest(
         "feature_schema_version": FEATURE_SCHEMA_V2,
         "feature_names": list(MODEL_FEATURE_NAMES),
         "score_threshold": score_threshold,
+        "univariate_upper_limits": univariate_upper_limits,
         "pipeline": pipeline,
     }
     joblib.dump(payload, temporary_path)
@@ -171,6 +208,7 @@ def train_isolation_forest(
                 "random_state": random_state,
                 "n_estimators": 200,
                 "score_threshold": score_threshold,
+                "univariate_upper_limits": univariate_upper_limits,
                 "training_diagnostics": training_diagnostics,
             },
             feature_names=list(MODEL_FEATURE_NAMES),
@@ -242,17 +280,46 @@ class IsolationForestDetector:
         score = -float(pipeline.decision_function(vector)[0])
         threshold = float(self.payload.get("score_threshold", 0.0))
         score_margin = score - threshold
-        is_anomaly = score_margin >= 0.0
+        univariate_limits = self.payload.get("univariate_upper_limits")
+        if not univariate_limits:
+            is_anomaly = score_margin >= 0.0
+            severity = DetectionDecision.Severity.NORMAL
+            if is_anomaly:
+                severity = DetectionDecision.Severity.CRITICAL if score_margin >= 0.15 else DetectionDecision.Severity.WARNING
+            return DetectionResult(
+                score=score,
+                normalized_score=normalize_signed_score(score_margin),
+                threshold=threshold,
+                is_anomaly=is_anomaly,
+                severity=severity,
+                reasons=("isolation_forest.outlier",) if is_anomaly else (),
+            )
+
+        guard_margins: dict[str, float] = {}
+        for field, details in univariate_limits.items():
+            value = getattr(feature, field)
+            if value is None:
+                continue
+            upper_limit = float(details["upper_limit"])
+            scale = max(abs(upper_limit), float(details["minimum_delta"]), 1e-9)
+            guard_margins[field] = (float(value) - upper_limit) / scale
+        combined_margin = max((score_margin, *guard_margins.values()))
+        guard_hits = tuple(field for field, margin in guard_margins.items() if margin >= 0.0)
+        is_anomaly = combined_margin >= 0.0
         severity = DetectionDecision.Severity.NORMAL
         if is_anomaly:
-            severity = DetectionDecision.Severity.CRITICAL if score_margin >= 0.15 else DetectionDecision.Severity.WARNING
+            severity = DetectionDecision.Severity.CRITICAL if combined_margin >= 0.5 else DetectionDecision.Severity.WARNING
+        reasons = []
+        if score_margin >= 0.0:
+            reasons.append("isolation_forest.outlier")
+        reasons.extend(f"isolation_forest.univariate_guard.{field}" for field in guard_hits)
         return DetectionResult(
-            score=score,
-            normalized_score=normalize_signed_score(score_margin),
-            threshold=threshold,
+            score=combined_margin,
+            normalized_score=normalize_signed_score(combined_margin),
+            threshold=0.0,
             is_anomaly=is_anomaly,
             severity=severity,
-            reasons=("isolation_forest.outlier",) if is_anomaly else (),
+            reasons=tuple(reasons),
         )
 
 

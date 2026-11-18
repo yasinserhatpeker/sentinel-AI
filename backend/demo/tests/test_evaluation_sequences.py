@@ -86,7 +86,7 @@ class EvaluationAndSequenceTests(TestCase):
 
         discovered = detector_metadata_for_experiment(experiment)
         self.assertIn(metadata, discovered)
-        self.assertEqual(evaluate_experiments_for_window(self.start + timedelta(minutes=15)), 3)
+        self.assertEqual(evaluate_experiments_for_window(self.start + timedelta(minutes=15)), 1)
         result = experiment.evaluations.get(detector_type="isolation_forest", model_version="if-real-data")
         self.assertEqual((result.true_positive, result.false_positive, result.true_negative, result.false_negative), (1, 1, 1, 1))
         self.assertEqual(result.precision, 0.5)
@@ -105,6 +105,61 @@ class EvaluationAndSequenceTests(TestCase):
         discovered = detector_metadata_for_experiment(experiment)
 
         self.assertEqual([item.detector_type for item in discovered], ["static_threshold", "median_mad"])
+
+    def test_evaluation_waits_for_every_metric_window_decision(self) -> None:
+        experiment = self.experiment()
+        metadata = DetectorMetadata("isolation_forest", "1.1.0", "isolation-forest.v1", "if-active")
+        normal = self.feature(0)
+        fault = self.feature(1, anomaly_signal=750.0)
+        for feature, label in (
+            (normal, GroundTruthWindow.Label.NORMAL),
+            (fault, GroundTruthWindow.Label.FAULT_ACTIVE),
+        ):
+            GroundTruthWindow.objects.create(
+                experiment=experiment, environment="local", service="orders-api",
+                window_start=feature.window_start, label=label, fault_severity=0.8,
+            )
+        DetectionDecision.objects.create(
+            feature=normal, environment="local", service="orders-api",
+            detector_type=metadata.detector_type, detector_version=metadata.detector_version,
+            configuration_version=metadata.configuration_version, model_version=metadata.model_version,
+            is_anomaly=False, severity="normal", reasons=[],
+        )
+
+        with self.assertRaisesMessage(ValueError, "evaluation_evidence_incomplete"):
+            evaluate_detector(experiment, metadata)
+        self.assertFalse(experiment.evaluations.exists())
+
+    def test_evaluation_excludes_normal_windows_contaminated_by_another_experiment(self) -> None:
+        experiment = self.experiment()
+        previous = self.experiment()
+        metadata = DetectorMetadata("isolation_forest", "1.1.0", "isolation-forest.v1", "if-active")
+        contaminated = self.feature(0, anomaly_signal=750.0)
+        fault = self.feature(1, anomaly_signal=750.0)
+        GroundTruthWindow.objects.create(
+            experiment=experiment, environment="local", service="orders-api",
+            window_start=contaminated.window_start, label=GroundTruthWindow.Label.NORMAL, fault_severity=0.0,
+        )
+        GroundTruthWindow.objects.create(
+            experiment=previous, environment="local", service="orders-api",
+            window_start=contaminated.window_start, label=GroundTruthWindow.Label.FAULT_ACTIVE, fault_severity=0.8,
+        )
+        GroundTruthWindow.objects.create(
+            experiment=experiment, environment="local", service="orders-api",
+            window_start=fault.window_start, label=GroundTruthWindow.Label.FAULT_ACTIVE, fault_severity=0.8,
+        )
+        for feature in (contaminated, fault):
+            DetectionDecision.objects.create(
+                feature=feature, environment="local", service="orders-api",
+                detector_type=metadata.detector_type, detector_version=metadata.detector_version,
+                configuration_version=metadata.configuration_version, model_version=metadata.model_version,
+                is_anomaly=True, severity="warning", reasons=[],
+            )
+
+        result = evaluate_detector(experiment, metadata)
+
+        self.assertEqual((result.true_positive, result.false_positive, result.true_negative, result.false_negative), (1, 0, 0, 0))
+        self.assertEqual(result.f1_score, 1.0)
 
     def test_sequence_journals_are_contiguous_time_ordered_and_lstm_gated(self) -> None:
         experiment = self.experiment()

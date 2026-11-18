@@ -124,10 +124,33 @@ class IsolationForestLifecycleTests(TestCase):
             activate_model(model)
             latency_spike = self.feature(60, latency=800.0, error_rate=0.01, rolling_latency=100.0)
             vector = feature_vector(latency_spike)
+            decision = score_with_active_model(latency_spike)
 
         relative_latency_index = MODEL_FEATURE_NAMES.index("relative_to_15m.latency_p95_ms")
         self.assertAlmostEqual(vector[relative_latency_index], 7.0, places=6)
         self.assertLess(len(model.feature_names), model.sample_count)
+        self.assertIsNotNone(decision)
+        self.assertTrue(decision.is_anomaly)
+        self.assertIn("isolation_forest.univariate_guard.latency_p95_ms", decision.reasons)
+
+    def test_univariate_guard_catches_repeated_latency_after_rolling_baseline_rises(self) -> None:
+        for index in range(60):
+            self.feature(index, latency=80.0 + (index % 7), error_rate=0.0)
+
+        with tempfile.TemporaryDirectory() as directory, override_settings(MODEL_ARTIFACT_DIR=directory):
+            model = train_isolation_forest(
+                environment="local", service="orders-api", start=self.start,
+                end=self.start + timedelta(hours=5), minimum_samples=50,
+                contamination=0.05, random_state=42,
+            )
+            activate_model(model)
+            repeated_spike = self.feature(60, latency=779.0, error_rate=0.0, rolling_latency=553.0)
+            decision = score_with_active_model(repeated_spike)
+
+        self.assertIsNotNone(decision)
+        self.assertTrue(decision.is_anomaly)
+        self.assertGreaterEqual(decision.score, decision.threshold)
+        self.assertIn("isolation_forest.univariate_guard.latency_p95_ms", decision.reasons)
 
     def test_training_uses_ground_truth_instead_of_baseline_predictions(self) -> None:
         features = [self.feature(index, latency=100.0 + (index % 7)) for index in range(51)]

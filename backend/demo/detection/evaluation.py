@@ -11,6 +11,31 @@ def _safe_ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def _evaluable_labels(experiment: FaultExperiment) -> list[GroundTruthWindow]:
+    """Return complete-metric labels without cross-experiment contamination."""
+
+    labels = list(
+        experiment.ground_truth_windows.filter(
+            label__in=(GroundTruthWindow.Label.NORMAL, GroundTruthWindow.Label.FAULT_ACTIVE),
+        ).order_by("window_start")
+    )
+    normal_windows = [label.window_start for label in labels if label.label == GroundTruthWindow.Label.NORMAL]
+    contaminated_normal_windows = set(
+        GroundTruthWindow.objects.filter(
+            environment=experiment.environment,
+            service=experiment.service,
+            window_start__in=normal_windows,
+        )
+        .exclude(experiment=experiment)
+        .exclude(label=GroundTruthWindow.Label.NORMAL)
+        .values_list("window_start", flat=True)
+    )
+    return [
+        label for label in labels
+        if label.label != GroundTruthWindow.Label.NORMAL or label.window_start not in contaminated_normal_windows
+    ]
+
+
 def detector_metadata_for_experiment(experiment: FaultExperiment) -> tuple[DetectorMetadata, ...]:
     """Return baselines plus model versions with real decisions in labelled windows."""
 
@@ -47,14 +72,22 @@ def evaluate_experiments_for_window(window_start) -> int:
     evaluation_count = 0
     for experiment in experiments:
         for metadata in detector_metadata_for_experiment(experiment):
-            evaluate_detector(experiment, metadata)
-            evaluation_count += 1
+            try:
+                evaluate_detector(experiment, metadata)
+            except ValueError as exc:
+                if str(exc) != "evaluation_evidence_incomplete":
+                    raise
+            else:
+                evaluation_count += 1
     return evaluation_count
 
 
 def evaluate_detector(experiment: FaultExperiment, metadata: DetectorMetadata) -> DetectorEvaluation:
     labels = list(experiment.ground_truth_windows.order_by("window_start"))
     if not labels:
+        raise ValueError("evaluation_ground_truth_missing")
+    metric_labels = _evaluable_labels(experiment)
+    if not any(label.label == GroundTruthWindow.Label.FAULT_ACTIVE for label in metric_labels):
         raise ValueError("evaluation_ground_truth_missing")
     decisions = {
         decision.feature.window_start: decision
@@ -68,8 +101,10 @@ def evaluate_detector(experiment: FaultExperiment, metadata: DetectorMetadata) -
             feature__window_start__in=[label.window_start for label in labels],
         ).select_related("feature")
     }
+    if any(label.window_start not in decisions for label in metric_labels):
+        raise ValueError("evaluation_evidence_incomplete")
     tp = fp = tn = fn = 0
-    for label in labels:
+    for label in metric_labels:
         decision = decisions.get(label.window_start)
         predicted = bool(decision and decision.is_anomaly)
         if label.label == GroundTruthWindow.Label.FAULT_ACTIVE:
