@@ -35,6 +35,7 @@ class SuperAdminLoginTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
+        self.assertEqual(response.data["user"], {"username": self.admin.username})
         self.assertTrue(self.admin.password.startswith("bcrypt_sha256$"))
         cookie = response.cookies["sentinel_refresh"]
         self.assertTrue(cookie["httponly"])
@@ -94,6 +95,7 @@ class SuperAdminLoginTests(TestCase):
         refreshed = self.client.post("/api/auth/refresh/", {}, format="json", HTTP_X_CSRFTOKEN=self.csrf())
 
         self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(refreshed.data["user"], {"username": self.admin.username})
         self.assertNotEqual(original, refreshed.cookies["sentinel_refresh"].value)
         logout = self.client.post("/api/auth/logout/", {}, format="json", HTTP_X_CSRFTOKEN=self.csrf())
         self.assertEqual(logout.status_code, 204)

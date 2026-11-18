@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from "vue";
 
 import TrendChart from "./components/TrendChart.vue";
 import SelectField from "./components/SelectField.vue";
+import HomeDashboard from "./components/HomeDashboard.vue";
 import { dashboardState } from "./telemetry/dashboard-state";
 import { getAggregates, getServices, getSystemOverview } from "./telemetry/service";
 import type { MetricGroup, SystemOverviewResponse, TelemetryAggregateResponse, TelemetryPoint } from "./telemetry/types";
@@ -14,6 +15,7 @@ import { activeFaults, percentage, severityLabel } from "./analysis/state";
 import type { Anomaly, DetectorEvaluation, DetectorModel, FaultExperiment, LstmPrototypeResult, ModelReadinessResponse } from "./analysis/types";
 
 const token = ref("");
+const currentUsername = ref("");
 const identifier = ref(""); const password = ref(""); const showPassword = ref(false);
 const services = ref<string[]>([]);
 const selectedService = ref("");
@@ -26,8 +28,8 @@ const activityMessage = ref("");
 const overview = ref<SystemOverviewResponse | null>(null);
 const overviewLoading = ref(false);
 const overviewError = ref("");
-type WorkspaceView = "overview" | "service" | "anomalies" | "faults" | "models";
-const activeView = ref<WorkspaceView>("overview");
+type WorkspaceView = "home" | "overview" | "service" | "anomalies" | "faults" | "models";
+const activeView = ref<WorkspaceView>("home");
 const analysisLoading = ref(false);
 const analysisError = ref("");
 const anomalies = ref<Anomaly[]>([]);
@@ -37,10 +39,29 @@ const models = ref<DetectorModel[]>([]);
 const evaluations = ref<DetectorEvaluation[]>([]);
 const modelReadiness = ref<ModelReadinessResponse | null>(null);
 const lstmResult = ref<LstmPrototypeResult | null>(null);
+const isolationForestEvaluations = computed(() => evaluations.value.filter((item) => item.detector_type === "isolation_forest"));
+const baselineEvaluations = computed(() => evaluations.value.filter((item) => item.detector_type !== "isolation_forest"));
 const faultType = ref("high_latency");
 const faultDuration = ref(60);
 const faultValue = ref(750);
-const workspaceTitle = computed(() => ({ overview: "Sistem özeti", service: "Servis sağlığı", anomalies: "Anomaly kayıtları", faults: "Fault deneyleri", models: "Model değerlendirmesi" })[activeView.value]);
+const workspaceMeta = computed(() => ({
+  home: ["Ana sayfa", "Servisleri, anomaly kayıtlarını, fault deneylerini ve model sonuçlarını inceleyin."],
+  overview: ["Sistem özeti", "Servis health, dependency, latency, queue ve fault context’ini birlikte değerlendirin."],
+  service: ["Servis sağlığı", "Seçili servisin HTTP, Runtime, Database ve Queue telemetry’sini ayrıntılı inceleyin."],
+  anomalies: ["Anomaly kayıtları", "Detector kararlarını, score değerlerini ve kararın evidence alanlarını inceleyin."],
+  faults: ["Fault deneyleri", "Kontrollü bozulmalar çalıştırın ve ground-truth veri üretin."],
+  models: ["Model değerlendirmesi", "Training readiness, Isolation Forest ve LSTM sonuçlarını karşılaştırın."],
+} as Record<WorkspaceView, [string, string]>)[activeView.value]);
+const workspaceTitle = computed(() => workspaceMeta.value[0]);
+const workspaceDescription = computed(() => workspaceMeta.value[1]);
+const navigationItems: Array<{ view: WorkspaceView; label: string; group: "Genel" | "Analiz" }> = [
+  { view: "home", label: "Ana sayfa", group: "Genel" },
+  { view: "overview", label: "Sistem özeti", group: "Genel" },
+  { view: "service", label: "Servis sağlığı", group: "Genel" },
+  { view: "anomalies", label: "Anomaly kayıtları", group: "Analiz" },
+  { view: "faults", label: "Fault deneyleri", group: "Analiz" },
+  { view: "models", label: "Model değerlendirmesi", group: "Analiz" },
+];
 
 const rangeHours = computed(() => Number.parseInt(range.value, 10));
 const hasToken = computed(() => Boolean(token.value));
@@ -141,7 +162,9 @@ async function withFreshAccess<T>(operation: (accessToken: string) => Promise<T>
     return await operation(token.value);
   } catch (error) {
     if (!(error instanceof TelemetryApiError) || error.status !== 401) throw error;
-    token.value = await refresh();
+    const session = await refresh();
+    token.value = session.access;
+    currentUsername.value = session.user.username;
     return operation(token.value);
   }
 }
@@ -208,7 +231,7 @@ async function switchView(view: WorkspaceView) {
   if (view === "models" && range.value !== "24h") range.value = "24h";
   await nextTick();
   window.scrollTo({ top: 0, behavior: "smooth" });
-  if (view === "overview") await loadSystemOverview();
+  if (view === "home" || view === "overview") await loadSystemOverview();
   if (view === "service") await loadDashboard();
   if (view === "anomalies") await loadAnomalies();
   if (view === "faults") await loadFaults();
@@ -286,7 +309,9 @@ async function continueWithToken() {
   errorCode.value = "";
   loading.value = true;
   try {
-    token.value = await login(identifier.value, password.value);
+    const session = await login(identifier.value, password.value);
+    token.value = session.access;
+    currentUsername.value = session.user.username;
     const discovered = await getServices(token.value, "local");
     services.value = discovered.services;
     selectedService.value = discovered.services[0] ?? "orders-api";
@@ -299,8 +324,8 @@ async function continueWithToken() {
     loading.value = false;
   }
 }
-async function restoreSession() { await initialiseCsrf(); try { token.value = await refresh(); const discovered = await getServices(token.value, "local"); services.value = discovered.services; selectedService.value = discovered.services[0] ?? "orders-api"; if (discovered.services.length) await loadDashboard(); await loadSystemOverview(); } catch { token.value = ""; } }
-async function signOut() { await logout(); token.value = ""; response.value = null; services.value = []; }
+async function restoreSession() { await initialiseCsrf(); try { const session = await refresh(); token.value = session.access; currentUsername.value = session.user.username; const discovered = await getServices(token.value, "local"); services.value = discovered.services; selectedService.value = discovered.services[0] ?? "orders-api"; if (discovered.services.length) await loadDashboard(); await loadSystemOverview(); } catch { token.value = ""; currentUsername.value = ""; } }
+async function signOut() { await logout(); token.value = ""; currentUsername.value = ""; response.value = null; services.value = []; }
 onMounted(() => void restoreSession());
 </script>
 
@@ -324,15 +349,30 @@ onMounted(() => void restoreSession());
     </section>
   </main>
 
-  <main v-else class="app-shell">
-    <section class="workspace" id="dashboard">
-      <header class="topbar">
-        <div class="topbar-title"><div class="dashboard-brand">sentinel<span>AI</span></div><h1>{{ workspaceTitle }}</h1></div><button class="secondary-button" @click="signOut">Çıkış</button>
-      </header>
-      <nav class="workspace-nav" aria-label="Ana navigasyon">
-        <button v-for="item in ([['overview','Sistem özeti'],['service','Servis sağlığı'],['anomalies','Anomalies'],['faults','Fault deneyleri'],['models','Model değerlendirmesi']] as const)" :key="item[0]" :class="{ active: activeView === item[0] }" @click="switchView(item[0])">{{ item[1] }}</button>
+  <div v-else class="portal-shell">
+    <aside class="portal-sidebar">
+      <button type="button" class="portal-brand" aria-label="Ana sayfaya git" @click="switchView('home')">sentinel<span>AI</span></button>
+      <nav class="portal-nav" aria-label="Ana navigasyon">
+        <template v-for="group in ['Genel', 'Analiz'] as const" :key="group">
+          <p>{{ group }}</p>
+          <button v-for="item in navigationItems.filter((entry) => entry.group === group)" :key="item.view" :class="{ active: activeView === item.view }" @click="switchView(item.view)">
+            {{ item.label }}
+          </button>
+        </template>
       </nav>
+      <div class="portal-sidebar-footer">
+        <span>Ortam</span>
+        <strong>local</strong>
+      </div>
+    </aside>
+    <section class="portal-stage" id="dashboard">
+      <header class="portal-header">
+        <div><p>sentinelAI / {{ workspaceTitle }}</p><h1>{{ workspaceTitle }}</h1><span>{{ workspaceDescription }}</span></div>
+        <div class="portal-header-actions"><div class="portal-user"><span>Merhaba,</span><strong>{{ currentUsername }}</strong></div><button class="secondary-button" @click="signOut">Çıkış</button></div>
+      </header>
+      <main class="portal-main">
       <div class="dashboard-content">
+        <HomeDashboard v-if="activeView === 'home'" :overview="overview" :loading="overviewLoading" :error="overviewError" @navigate="switchView" />
         <section v-if="activeView === 'overview'" class="mb-[18px] rounded-[14px] border border-[#d6e2dc] bg-[#fbfcfb] p-5 shadow-[0_8px_18px_rgba(12,57,43,.06)]" aria-label="Sistem özeti">
           <div class="flex items-start justify-between gap-4"><div><p class="eyebrow">SİSTEM ÖZETİ</p><h2 class="mt-1 text-[20px] text-[#203c33]">Yerel sistem sağlığı</h2></div><button class="secondary-button" :disabled="overviewLoading" @click="loadSystemOverview">Yenile</button></div>
           <p v-if="overviewLoading" class="notice mt-4" role="status">Sistem özeti yükleniyor…</p>
@@ -368,7 +408,9 @@ onMounted(() => void restoreSession());
           <article class="panel"><header><div><p class="eyebrow">DATA READINESS</p><h2>Gerçek model verisi</h2></div><span>{{ modelReadiness?.status ?? 'veri yok' }}</span></header><p v-if="!modelReadiness" class="notice">Seçili scope için readiness bilgisi bulunmuyor.</p><template v-else><p class="panel-description">Bu değerler yalnızca tamamlanmış gerçek `features.v2` pencerelerinden hesaplanır; eksik zamanlar veya yapay kayıtlar hazır sayılmaz.</p><div class="summary-grid !my-4"><article class="metric-card"><p>Feature samples</p><strong>{{ modelReadiness.feature_sample_count }}</strong><span>Isolation Forest için uygun: {{ modelReadiness.eligible_isolation_forest_sample_count }} / {{ modelReadiness.isolation_forest_minimum_samples }}</span></article><article class="metric-card"><p>Kesintisiz windows</p><strong>{{ modelReadiness.longest_contiguous_window_count }}</strong><span>sequence gap: {{ modelReadiness.sequence_gap_count }}</span></article><article class="metric-card"><p>LSTM sequences</p><strong>{{ modelReadiness.candidate_sequence_count }}</strong><span>minimum {{ modelReadiness.lstm_minimum_sequences }}</span></article><article class="metric-card"><p>Tahmini kalan süre</p><strong>{{ modelReadiness.estimated_minutes_remaining_for_lstm }} dk</strong><span>{{ modelReadiness.windows_remaining_for_lstm }} tamamlanmış window</span></article></div><p class="notice" :class="{ 'notice--warning': !modelReadiness.isolation_forest_ready }">Isolation Forest: {{ modelReadiness.isolation_forest_ready ? 'hazır' : 'veri toplanıyor' }} · LSTM: {{ modelReadiness.lstm_ready ? 'hazır' : 'veri toplanıyor' }}</p></template></article>
           <article class="panel"><header><div><p class="eyebrow">ISOLATION FOREST</p><h2>Model lifecycle</h2></div><button class="primary-button" :disabled="!modelReadiness?.isolation_forest_ready" @click="trainIsolationForest">Seçili scope ile eğit</button></header><p class="panel-description">Eğitim, time-ordered normal `features.v2` satırlarını kullanır ve minimum 50 sample gerektirir.</p><p v-if="!modelReadiness?.isolation_forest_ready" class="notice notice--warning">Minimum 50 uygun normal sample oluşana kadar eğitim kilitlidir.</p><p v-if="!models.length" class="notice">Bu service için model bulunmuyor.</p><div v-for="model in models" :key="model.id" class="table-row"><span><strong>{{ model.model_version }}</strong><small>{{ model.sample_count }} sample · {{ model.feature_count }} feature · {{ model.detector_version }}</small></span><span class="status-chip" :class="{ 'status-chip--normal': model.status === 'active' }">{{ model.status }}</span><button v-if="model.status === 'trained'" @click="activateIsolationForest(model.id)">Aktif et</button></div></article>
           <article class="panel"><header><div><p class="eyebrow">OFFLINE LSTM PROTOTYPE</p><h2>Sequence evaluation</h2></div><button class="primary-button" :disabled="!modelReadiness?.lstm_ready" @click="runLstmPrototype">Prototype çalıştır</button></header><p class="panel-description">12-window chronological train/validation/test split kullanır. Sonuç yalnızca offline evaluation'dır; live detector olarak otomatik aktive edilmez.</p><p v-if="!modelReadiness?.lstm_ready" class="notice notice--warning">Minimum 60 geçerli sequence oluşana kadar çalışma kilitlidir.</p><dl v-if="lstmResult" class="detail-list"><div><dt>Split</dt><dd>{{ lstmResult.train_samples }} train · {{ lstmResult.validation_samples }} validation · {{ lstmResult.test_samples }} test</dd></div><div><dt>Validation accuracy</dt><dd>{{ percentage(lstmResult.validation_accuracy) }}</dd></div><div><dt>Test accuracy</dt><dd>{{ percentage(lstmResult.test_accuracy) }}</dd></div><div><dt>Activation</dt><dd>Yok — offline prototype</dd></div></dl></article>
-          <article class="panel"><header><div><p class="eyebrow">DETECTOR EVALUATION</p><h2>Karşılaştırma sonuçları</h2></div><span>{{ evaluations.length }} değerlendirme</span></header><p v-if="!evaluations.length" class="notice">Tamamlanmış experiment için evaluation sonucu bulunmuyor.</p><div v-for="item in evaluations" :key="item.id" class="evaluation-row"><div><strong>{{ item.detector_type }} · {{ item.detector_version }}</strong><small>{{ item.model_version ?? item.configuration_version }}</small></div><dl><div><dt>Precision</dt><dd>{{ percentage(item.precision) }}</dd></div><div><dt>Recall</dt><dd>{{ percentage(item.recall) }}</dd></div><div><dt>F1-score</dt><dd>{{ percentage(item.f1_score) }}</dd></div><div><dt>False-positive rate</dt><dd>{{ percentage(item.false_positive_rate) }}</dd></div><div><dt>Detection delay</dt><dd>{{ item.detection_delay_seconds ?? '—' }} s</dd></div></dl></div></article>
+          <article class="panel"><header><div><p class="eyebrow">MODEL TRAINING SCORES</p><h2>Isolation Forest eğitim sonuçları</h2></div><span>{{ models.length }} model</span></header><p class="panel-description">Isolation Forest unsupervised çalışır; bu alan accuracy değil, eğitim verisindeki outlier oranını ve raw anomaly score dağılımını gösterir. Yüksek score daha anomaly-benzeri örnektir.</p><p v-if="!models.length" class="notice">Seçili service için eğitim sonucu bulunmuyor.</p><div v-for="model in models" :key="`training-${model.id}`" class="evaluation-row"><div><strong>{{ model.model_version }}</strong><small>{{ model.status }} · {{ new Date(model.trained_from).toLocaleString('tr-TR') }} — {{ new Date(model.trained_until).toLocaleString('tr-TR') }}</small></div><dl v-if="model.configuration.training_diagnostics" class="training-score-grid"><div><dt>Training sample</dt><dd>{{ model.sample_count }}</dd></div><div><dt>Feature</dt><dd>{{ model.feature_count }}</dd></div><div><dt>Predicted outlier</dt><dd>{{ model.configuration.training_diagnostics.predicted_anomaly_count }} · {{ percentage(model.configuration.training_diagnostics.predicted_anomaly_rate) }}</dd></div><div><dt>Mean score</dt><dd>{{ model.configuration.training_diagnostics.score_mean.toFixed(4) }}</dd></div><div><dt>p95 score</dt><dd>{{ model.configuration.training_diagnostics.score_p95.toFixed(4) }}</dd></div><div><dt>Max score</dt><dd>{{ model.configuration.training_diagnostics.score_max.toFixed(4) }}</dd></div></dl><p v-else class="notice notice--warning">Bu eski model için training diagnostics henüz materialize edilmedi.</p></div></article>
+          <article class="panel"><header><div><p class="eyebrow">ISOLATION FOREST ACCURACY</p><h2>Gerçek fault doğruluk sonuçları</h2></div><span>{{ isolationForestEvaluations.length }} değerlendirme</span></header><p class="panel-description">Bu skorlar yalnız aktif modelin live decisions kayıtları ile controlled fault ground truth karşılaştırılarak hesaplanır.</p><p v-if="!isolationForestEvaluations.length" class="notice notice--warning">Aktif model sonrasında tamamlanmış ve score edilmiş controlled fault deneyi bekleniyor.</p><div v-for="item in isolationForestEvaluations" :key="item.id" class="evaluation-row"><div><strong>{{ item.model_version }}</strong><small>{{ item.detector_type }} · {{ item.detector_version }}</small></div><dl><div><dt>Precision</dt><dd>{{ percentage(item.precision) }}</dd></div><div><dt>Recall</dt><dd>{{ percentage(item.recall) }}</dd></div><div><dt>F1-score</dt><dd>{{ percentage(item.f1_score) }}</dd></div><div><dt>False-positive rate</dt><dd>{{ percentage(item.false_positive_rate) }}</dd></div><div><dt>Detection delay</dt><dd>{{ item.detection_delay_seconds ?? '—' }} s</dd></div></dl><p class="confusion-line">Confusion · TP {{ item.confusion.true_positive }} · FP {{ item.confusion.false_positive }} · TN {{ item.confusion.true_negative }} · FN {{ item.confusion.false_negative }}</p></div></article>
+          <article class="panel"><header><div><p class="eyebrow">BASELINE EVALUATION</p><h2>Static Threshold ve Median/MAD</h2></div><span>{{ baselineEvaluations.length }} değerlendirme</span></header><p class="panel-description">Aynı ground truth üzerinde açıklanabilir baseline sonuçları, Isolation Forest ile karşılaştırma için korunur.</p><p v-if="!baselineEvaluations.length" class="notice">Tamamlanmış experiment için baseline evaluation sonucu bulunmuyor.</p><div v-for="item in baselineEvaluations" :key="item.id" class="evaluation-row"><div><strong>{{ item.detector_type }} · {{ item.detector_version }}</strong><small>{{ item.configuration_version }}</small></div><dl><div><dt>Precision</dt><dd>{{ percentage(item.precision) }}</dd></div><div><dt>Recall</dt><dd>{{ percentage(item.recall) }}</dd></div><div><dt>F1-score</dt><dd>{{ percentage(item.f1_score) }}</dd></div><div><dt>False-positive rate</dt><dd>{{ percentage(item.false_positive_rate) }}</dd></div><div><dt>Detection delay</dt><dd>{{ item.detection_delay_seconds ?? '—' }} s</dd></div></dl></div></article>
         </section>
 
         <template v-if="activeView === 'service'">
@@ -417,6 +459,7 @@ onMounted(() => void restoreSession());
         <p v-else class="notice">Seçili Time range içinde Aggregate Telemetry bulunamadı.</p>
         </template>
       </div>
+      </main>
     </section>
-  </main>
+  </div>
 </template>

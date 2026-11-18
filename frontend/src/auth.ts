@@ -15,6 +15,8 @@ export async function initialiseCsrf() {
   const body = await response.json() as { csrfToken?: string };
   csrfToken = body.csrfToken ?? csrfToken;
 }
-export async function login(identifier: string, password: string): Promise<string> { await initialiseCsrf(); return (await request("/api/auth/login/", { method: "POST", body: JSON.stringify({ identifier, password }) })).access; }
-export async function refresh(): Promise<string> { return (await request("/api/auth/refresh/", { method: "POST", body: "{}" })).access; }
+export type AuthSession = { access: string; user: { username: string } };
+
+export async function login(identifier: string, password: string): Promise<AuthSession> { await initialiseCsrf(); return request("/api/auth/login/", { method: "POST", body: JSON.stringify({ identifier, password }) }); }
+export async function refresh(): Promise<AuthSession> { return request("/api/auth/refresh/", { method: "POST", body: "{}" }); }
 export async function logout() { await request("/api/auth/logout/", { method: "POST", body: "{}" }); }
