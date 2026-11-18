@@ -65,8 +65,9 @@ docker compose exec api python manage.py verify_fault_experiments --duration 15 
 
 Available scenarios are `high_latency`, `error_burst`, `database_slowdown` and
 `queue_backlog`. Duration/severity are bounded, requests are HMAC-signed, conflicting runs are
-rejected, state expires automatically and the watchdog completes recovery. Only the named local
-service changes; this lets the dashboard demonstrate isolation rather than a system-wide
+rejected. Fault süresi bittiğinde iki dakikalık bounded recovery başlar. Watchdog normal akışta
+recovery'yi tamamlar; API okumaları ve yeni deney başlatma işlemi de süresi geçmiş kayıtları uzlaştırır.
+Only the named local service changes; this lets the dashboard demonstrate isolation rather than a system-wide
 artificial outage. See [anomaly-detection-fault-experiments.md](anomaly-detection-fault-experiments.md)
 for the feature, detector, ground-truth and evaluation contracts.
 
